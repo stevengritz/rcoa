@@ -213,8 +213,8 @@
       </div>
       <div class="param-row">
         <label>Interaction Radius</label>
-        <input type="range" id="pRint" min="10" max="100" value="50">
-        <span class="val" id="vRint">50</span>
+        <input type="range" id="pRint" min="10" max="150" value="80">
+        <span class="val" id="vRint">80</span>
       </div>
     </div>
 
@@ -343,6 +343,20 @@
 // ============================================================
 // RCOA FLEET MAINTENANCE SIMULATOR
 // Full implementation of RCOA for the Selective Maintenance Problem
+//
+// FIXES APPLIED (Feb 2026):
+// 1. Target Commitment: Added commitment period (8 frames) to prevent
+//    crabs from oscillating between targets. Crabs now stick with a
+//    target unless it becomes over-crowded (ρ > 2).
+// 2. Speed Increase: Raised max speed from 8 to 12 px/frame to better
+//    match degradation rate and allow crabs to reach targets in time.
+// 3. Degradation Reduction: Changed severity multiplier from /5 to /8
+//    to give crabs sufficient time to reach and repair components.
+// 4. Interaction Radius: Increased default from 50 to 80 pixels and
+//    max range to 150 to match typical canvas size and rice spacing.
+// 5. PSO Velocity Tuning: Reduced cognitive weight (1.5→0.8) and
+//    increased social weight (2.0→2.5) to emphasize direct targeting
+//    over personal best position in maintenance context.
 // ============================================================
 
 const canvas = document.getElementById('simCanvas');
@@ -494,6 +508,8 @@ function init() {
       energy: 1.0,
       state: 'Foraging', // Foraging, Symbiosis, Molting
       targetRice: null,
+      targetCommitment: 0, // frames committed to current target
+      commitmentThreshold: 8, // min frames before switching targets
       pBestX: host.x,
       pBestY: host.y,
       pBestFitness: 0,
@@ -520,7 +536,8 @@ function step() {
   // Phase 1: Degradation (Weibull)
   rice.forEach(r => {
     if (!r.locked) {
-      const degradation = weibullDegradation(r.weibullShape, r.weibullScale) * (p.severity / 5);
+      // Reduced degradation rate from (severity/5) to (severity/8) to give crabs time to reach
+      const degradation = weibullDegradation(r.weibullShape, r.weibullScale) * (p.severity / 8);
       r.health = clamp(r.health - degradation, 0, 1);
       r.yield = r.health * r.health; // Quadratic relationship: Y = H^2
       r.age++;
@@ -551,33 +568,56 @@ function step() {
       return;
     }
 
-    // Attractiveness function: Ψ(r) = Y_i * H_i / (1 + γ * ρ_i)
-    let bestAttr = -Infinity, bestIdx = -1;
-    rice.forEach((r, i) => {
-      // Inverse health for maintenance: lower health = higher urgency
-      const urgency = (1 - r.health) * 2 + r.yield;
-      const attr = urgency / (1 + p.gamma * r.crabDensity);
-      if (attr > bestAttr) { bestAttr = attr; bestIdx = i; }
-    });
+    // Target selection with commitment: only switch targets after commitment period expires
+    // or if current target is already well-serviced
+    let shouldReselect = false;
 
-    c.targetRice = bestIdx;
-    const target = rice[bestIdx];
+    if (c.targetRice === null || c.targetCommitment <= 0) {
+      shouldReselect = true;
+    } else {
+      // Check if current target is over-crowded (density > 2)
+      const currentTarget = rice[c.targetRice];
+      if (currentTarget.crabDensity > 2) {
+        shouldReselect = true;
+        if (iteration % 50 === 0) logEvent('sys', `Crab ${c.id} switching: target over-crowded (ρ=${currentTarget.crabDensity})`);
+      }
+    }
+
+    if (shouldReselect) {
+      // Attractiveness function: Ψ(r) = Y_i * H_i / (1 + γ * ρ_i)
+      let bestAttr = -Infinity, bestIdx = -1;
+      rice.forEach((r, i) => {
+        // Inverse health for maintenance: lower health = higher urgency
+        const urgency = (1 - r.health) * 2 + r.yield;
+        const attr = urgency / (1 + p.gamma * r.crabDensity);
+        if (attr > bestAttr) { bestAttr = attr; bestIdx = i; }
+      });
+
+      c.targetRice = bestIdx;
+      c.targetCommitment = c.commitmentThreshold;
+    } else {
+      c.targetCommitment--;
+    }
+
+    const target = rice[c.targetRice];
     const d = dist(c, target);
 
     // Velocity update (PSO-like with density penalty)
-    const omega = 0.7; // inertia
+    // For maintenance: emphasize getting to target (social) over personal best (cognitive)
+    const omega = 0.6; // inertia - reduced slightly for faster response
     const u1 = Math.random(), u2 = Math.random();
     const cogX = u1 * (c.pBestX - c.x);
     const cogY = u1 * (c.pBestY - c.y);
     const socX = u2 * (target.x - c.x);
     const socY = u2 * (target.y - c.y);
 
-    c.vx = omega * c.vx + 1.5 * cogX + 2.0 * socX;
-    c.vy = omega * c.vy + 1.5 * cogY + 2.0 * socY;
+    // Reduced cognitive weight (0.8) and increased social weight (2.5) for direct targeting
+    c.vx = omega * c.vx + 0.8 * cogX + 2.5 * socX;
+    c.vy = omega * c.vy + 0.8 * cogY + 2.5 * socY;
 
-    // Speed limit
+    // Speed limit - increased from 8 to 12 to better match degradation rate
     const spd = Math.hypot(c.vx, c.vy);
-    const maxSpd = 8;
+    const maxSpd = 12;
     if (spd > maxSpd) { c.vx *= maxSpd / spd; c.vy *= maxSpd / spd; }
 
     c.x = clamp(c.x + c.vx, 10, W - 10);
