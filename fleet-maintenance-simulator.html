@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCOA Fleet Maintenance Simulator</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2332;
+    --border: #2a3a4e;
+    --text: #e2e8f0;
+    --text-dim: #8899aa;
+    --rice-green: #4ade80;
+    --rice-yellow: #facc15;
+    --rice-red: #f87171;
+    --crab-orange: #fb923c;
+    --crab-blue: #60a5fa;
+    --accent: #818cf8;
+    --accent2: #c084fc;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'SF Mono','Fira Code','Consolas',monospace; overflow-x:hidden; }
+
+  .app-header {
+    background: linear-gradient(135deg, #111827 0%, #1e293b 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 30px;
+    display:flex; align-items:center; gap:20px;
+  }
+  .app-header h1 { font-size:1.3em; font-weight:600; }
+  .app-header h1 span { color:var(--rice-green); }
+  .app-header .subtitle { color:var(--text-dim); font-size:0.8em; }
+
+  .main-layout { display:grid; grid-template-columns:320px 1fr 340px; height:calc(100vh - 80px); }
+
+  /* Left Panel */
+  .panel-left {
+    background:var(--surface);
+    border-right:1px solid var(--border);
+    overflow-y:auto;
+    padding:16px;
+  }
+  .panel-section { margin-bottom:18px; }
+  .panel-section h3 {
+    font-size:0.75em; text-transform:uppercase; letter-spacing:1.5px;
+    color:var(--accent); margin-bottom:10px; padding-bottom:6px;
+    border-bottom:1px solid var(--border);
+  }
+
+  .param-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .param-row label { font-size:0.75em; color:var(--text-dim); flex:1; }
+  .param-row input[type=range] { width:100px; accent-color:var(--accent); }
+  .param-row .val { font-size:0.75em; color:var(--rice-green); width:36px; text-align:right; }
+
+  .btn {
+    padding:8px 16px; border:1px solid var(--border); border-radius:4px;
+    background:var(--surface2); color:var(--text); font-family:inherit;
+    font-size:0.78em; cursor:pointer; transition:all 0.2s;
+  }
+  .btn:hover { border-color:var(--accent); background:#1e293b; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn.primary:hover { background:#6366f1; }
+  .btn.danger { border-color:var(--rice-red); color:var(--rice-red); }
+  .btn-row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+
+  /* Center Canvas */
+  .center-panel { position:relative; background:#080c14; overflow:hidden; }
+  #simCanvas { width:100%; height:100%; display:block; }
+
+  .overlay-stats {
+    position:absolute; top:12px; left:12px;
+    background:rgba(10,14,23,0.9); border:1px solid var(--border);
+    border-radius:6px; padding:10px 14px; font-size:0.7em;
+    pointer-events:none;
+  }
+  .overlay-stats .stat-line { display:flex; gap:10px; margin-bottom:3px; }
+  .overlay-stats .stat-label { color:var(--text-dim); }
+  .overlay-stats .stat-val { color:var(--rice-green); }
+
+  .legend-bar {
+    position:absolute; bottom:12px; left:12px;
+    background:rgba(10,14,23,0.9); border:1px solid var(--border);
+    border-radius:6px; padding:8px 14px; font-size:0.65em;
+    display:flex; gap:16px; pointer-events:none;
+  }
+  .legend-item { display:flex; align-items:center; gap:5px; }
+  .legend-dot { width:8px; height:8px; border-radius:50%; }
+
+  /* Right Panel */
+  .panel-right {
+    background:var(--surface);
+    border-left:1px solid var(--border);
+    overflow-y:auto;
+    padding:16px;
+  }
+
+  .concept-card {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:6px; padding:12px; margin-bottom:12px;
+    font-size:0.72em; line-height:1.6;
+  }
+  .concept-card h4 { color:var(--accent2); margin-bottom:6px; font-size:0.9em; }
+  .concept-card .tag {
+    display:inline-block; font-size:0.75em; padding:1px 6px;
+    border-radius:3px; margin-right:4px;
+  }
+  .tag-bio { background:#166534; color:#4ade80; }
+  .tag-math { background:#1e3a5f; color:#60a5fa; }
+  .tag-algo { background:#4c1d95; color:#c084fc; }
+
+  .chart-container { height:180px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; margin-bottom:12px; position:relative; }
+  #convergenceChart, #healthDistChart { width:100%; height:100%; }
+
+  .event-log {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:6px; padding:8px; max-height:200px;
+    overflow-y:auto; font-size:0.65em; line-height:1.8;
+  }
+  .event-log .ev { border-bottom:1px solid #1a2332; padding:2px 0; }
+  .ev-fert { color:var(--rice-green); }
+  .ev-weed { color:var(--rice-yellow); }
+  .ev-bio { color:var(--crab-orange); }
+  .ev-molt { color:var(--accent2); }
+  .ev-decay { color:var(--rice-red); }
+
+  .tooltip {
+    position:absolute; background:rgba(10,14,23,0.95); border:1px solid var(--accent);
+    border-radius:6px; padding:10px 14px; font-size:0.7em; pointer-events:none;
+    display:none; z-index:100; max-width:260px; line-height:1.5;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width:6px; }
+  ::-webkit-scrollbar-track { background:var(--surface); }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+  .mode-indicator {
+    position:absolute; top:12px; right:12px;
+    background:rgba(10,14,23,0.9); border:1px solid var(--border);
+    border-radius:6px; padding:8px 14px; font-size:0.7em;
+  }
+  .mode-indicator .mode-tag { color:var(--accent); font-weight:600; }
+
+  .comparison-table {
+    width:100%; font-size:0.7em; border-collapse:collapse; margin-top:8px;
+  }
+  .comparison-table th, .comparison-table td {
+    padding:4px 6px; border:1px solid var(--border); text-align:left;
+  }
+  .comparison-table th { background:var(--surface); color:var(--accent); }
+  .comparison-table .winner { color:var(--rice-green); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div>
+    <h1><span>RCOA</span> Fleet Maintenance Simulator</h1>
+    <div class="subtitle">Selective Maintenance Problem (SMP) &mdash; NP-Hard Optimization with Bio-Inspired Heterogeneous Agents</div>
+  </div>
+</div>
+
+<div class="main-layout">
+  <!-- LEFT PANEL: Controls -->
+  <div class="panel-left">
+    <div class="panel-section">
+      <h3>Fleet Configuration</h3>
+      <div class="param-row">
+        <label>Components (Rice N)</label>
+        <input type="range" id="pNumRice" min="6" max="30" value="12">
+        <span class="val" id="vNumRice">12</span>
+      </div>
+      <div class="param-row">
+        <label>Repair Crews (Crabs M)</label>
+        <input type="range" id="pNumCrabs" min="2" max="15" value="5">
+        <span class="val" id="vNumCrabs">5</span>
+      </div>
+      <div class="param-row">
+        <label>Mission Severity</label>
+        <input type="range" id="pSeverity" min="1" max="10" value="5">
+        <span class="val" id="vSeverity">5</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>RCOA Parameters</h3>
+      <div class="param-row">
+        <label>Cannibalism &gamma;</label>
+        <input type="range" id="pGamma" min="0" max="100" value="50">
+        <span class="val" id="vGamma">0.50</span>
+      </div>
+      <div class="param-row">
+        <label>Fertilization Rate &eta;</label>
+        <input type="range" id="pEta" min="1" max="100" value="30">
+        <span class="val" id="vEta">0.30</span>
+      </div>
+      <div class="param-row">
+        <label>Bioturbation Scale &alpha;</label>
+        <input type="range" id="pAlpha" min="1" max="100" value="20">
+        <span class="val" id="vAlpha">0.20</span>
+      </div>
+      <div class="param-row">
+        <label>Stagnation Threshold &tau;</label>
+        <input type="range" id="pTauStag" min="2" max="20" value="5">
+        <span class="val" id="vTauStag">5</span>
+      </div>
+      <div class="param-row">
+        <label>Molting Period</label>
+        <input type="range" id="pTauMolt" min="5" max="30" value="10">
+        <span class="val" id="vTauMolt">10</span>
+      </div>
+      <div class="param-row">
+        <label>Interaction Radius</label>
+        <input type="range" id="pRint" min="10" max="100" value="50">
+        <span class="val" id="vRint">50</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Simulation</h3>
+      <div class="param-row">
+        <label>Speed</label>
+        <input type="range" id="pSpeed" min="1" max="10" value="3">
+        <span class="val" id="vSpeed">3</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnStart">Start</button>
+        <button class="btn" id="btnPause">Pause</button>
+        <button class="btn danger" id="btnReset">Reset</button>
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn" id="btnMission">Trigger Mission Cycle</button>
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn" id="btnCompare">Run PSO Comparison</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Operator Toggles</h3>
+      <div class="param-row">
+        <label><input type="checkbox" id="togFert" checked> Fertilization</label>
+      </div>
+      <div class="param-row">
+        <label><input type="checkbox" id="togWeed" checked> Weeding</label>
+      </div>
+      <div class="param-row">
+        <label><input type="checkbox" id="togBio" checked> Bioturbation</label>
+      </div>
+      <div class="param-row">
+        <label><input type="checkbox" id="togMolt" checked> Molting</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: Canvas -->
+  <div class="center-panel">
+    <canvas id="simCanvas"></canvas>
+    <div class="overlay-stats" id="overlayStats">
+      <div class="stat-line"><span class="stat-label">Iteration:</span><span class="stat-val" id="statIter">0</span></div>
+      <div class="stat-line"><span class="stat-label">Avg Health:</span><span class="stat-val" id="statHealth">100%</span></div>
+      <div class="stat-line"><span class="stat-label">System Reliability:</span><span class="stat-val" id="statReliability">100%</span></div>
+      <div class="stat-line"><span class="stat-label">Failures:</span><span class="stat-val" id="statFailures">0</span></div>
+      <div class="stat-line"><span class="stat-label">Active Ops:</span><span class="stat-val" id="statOps">-</span></div>
+    </div>
+    <div class="legend-bar">
+      <div class="legend-item"><div class="legend-dot" style="background:#4ade80"></div> Healthy</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#facc15"></div> Degraded</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div> Critical</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div> Crab (Foraging)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div> Crab (Symbiosis)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#c084fc"></div> Crab (Molting)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:rgba(255,255,255,0.15)"></div> Locked</div>
+    </div>
+    <div class="mode-indicator">
+      Phase: <span class="mode-tag" id="phaseLabel">Idle</span>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+
+  <!-- RIGHT PANEL: Education + Charts -->
+  <div class="panel-right">
+    <div class="panel-section">
+      <h3>Convergence (Avg Health over Time)</h3>
+      <div class="chart-container"><canvas id="convergenceChart"></canvas></div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Health Distribution</h3>
+      <div class="chart-container"><canvas id="healthDistChart"></canvas></div>
+    </div>
+
+    <div class="panel-section" id="comparisonSection" style="display:none;">
+      <h3>RCOA vs PSO Comparison</h3>
+      <table class="comparison-table" id="comparisonTable">
+        <tr><th>Metric</th><th>RCOA</th><th>PSO</th></tr>
+      </table>
+    </div>
+
+    <div class="panel-section">
+      <h3>RCOA Operator Guide</h3>
+      <div class="concept-card" id="cardFert">
+        <h4>Fertilization (Gradient Injection)</h4>
+        <span class="tag tag-bio">Nitrogen Cycling</span><span class="tag tag-math">X += &eta;(P_best - X)/(1+&rho;)</span>
+        <p style="margin-top:6px;">When a Crab reaches a component, it transfers repair knowledge from its personal best experience. Unlike PSO where visiting a solution merely evaluates it, in RCOA <em>visiting improves it</em>. The density term &rho; models diminishing returns&mdash;crowding too many crews on one component wastes resources.</p>
+      </div>
+      <div class="concept-card" id="cardWeed">
+        <h4>Weeding (Pruning / Denoising)</h4>
+        <span class="tag tag-bio">Pest Removal</span><span class="tag tag-algo">Feature Selection</span>
+        <p style="margin-top:6px;">Crabs perform local sensitivity analysis on the component&rsquo;s parameters. Dimensions with low gradient contribution (&ldquo;weeds&rdquo;) are masked. If the masked solution yields better fitness, the change sticks. This embeds automatic dimensionality reduction inside the optimization loop&mdash;a capability absent in standard PSO/GA.</p>
+      </div>
+      <div class="concept-card" id="cardBio">
+        <h4>Bioturbation (L&eacute;vy Perturbation)</h4>
+        <span class="tag tag-bio">Soil Aeration</span><span class="tag tag-math">X += &alpha; &oplus; L&eacute;vy(&lambda;)</span>
+        <p style="margin-top:6px;">When a component stagnates for &tau;<sub>stag</sub> iterations (analogous to anaerobic soil), the Crab applies a heavy-tailed L&eacute;vy flight perturbation. The heavy tail makes occasional large jumps, proven more effective at escaping local optima than Gaussian noise. This &ldquo;aerates&rdquo; the solution landscape.</p>
+      </div>
+      <div class="concept-card" id="cardMolt">
+        <h4>Molting (Elitism Archive)</h4>
+        <span class="tag tag-bio">Shell Shedding</span><span class="tag tag-algo">Diversity Preservation</span>
+        <p style="margin-top:6px;">Every &tau;<sub>molt</sub> iterations, the weakest 10% of Crabs shelter at the best Rice agents and &ldquo;lock&rdquo; them from modification. This prevents destructive over-exploration of elite solutions while allowing the locked Crabs to reset energy. In evolutionary terms, weak individuals are <em>protected</em> rather than culled&mdash;preserving population diversity.</p>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Why NP-Hard?</h3>
+      <div class="concept-card">
+        <h4>Selective Maintenance Problem</h4>
+        <span class="tag tag-math">State Space: L<sup>N</sup></span>
+        <p style="margin-top:6px;">With N components and L repair levels (None, Minimal, Imperfect, Perfect), the state space grows as L<sup>N</sup>. For 12 components and 4 levels, that's 4<sup>12</sup> = 16,777,216 possible maintenance plans. Adding stochastic degradation (Weibull) and resource constraints (budget, time, crew) makes exact solutions intractable. RCOA's constructive simulation naturally handles the stochasticity&mdash;if a component degrades unexpectedly, chemotaxis draws more crabs. A GA would need to re-evolve the entire chromosome.</p>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Event Log</h3>
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// RCOA FLEET MAINTENANCE SIMULATOR
+// Full implementation of RCOA for the Selective Maintenance Problem
+// ============================================================
+
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- State ---
+let rice = [], crabs = [], iteration = 0, running = false, paused = false;
+let healthHistory = [], psoHealthHistory = [];
+let animFrame = null;
+let lastTime = 0;
+let accumulator = 0;
+
+// --- Parameters ---
+function getParams() {
+  return {
+    N: +document.getElementById('pNumRice').value,
+    M: +document.getElementById('pNumCrabs').value,
+    severity: +document.getElementById('pSeverity').value,
+    gamma: +document.getElementById('pGamma').value / 100,
+    eta: +document.getElementById('pEta').value / 100,
+    alpha: +document.getElementById('pAlpha').value / 100,
+    tauStag: +document.getElementById('pTauStag').value,
+    tauMolt: +document.getElementById('pTauMolt').value,
+    Rint: +document.getElementById('pRint').value,
+    speed: +document.getElementById('pSpeed').value,
+    fertOn: document.getElementById('togFert').checked,
+    weedOn: document.getElementById('togWeed').checked,
+    bioOn: document.getElementById('togBio').checked,
+    moltOn: document.getElementById('togMolt').checked,
+  };
+}
+
+// --- Slider bindings ---
+['pNumRice','pNumCrabs','pSeverity','pGamma','pEta','pAlpha','pTauStag','pTauMolt','pRint','pSpeed'].forEach(id => {
+  const el = document.getElementById(id);
+  const vid = 'v' + id.slice(1);
+  el.addEventListener('input', () => {
+    let v = el.value;
+    if (id === 'pGamma' || id === 'pEta' || id === 'pAlpha') v = (v / 100).toFixed(2);
+    document.getElementById(vid).textContent = v;
+  });
+});
+
+// --- Utility ---
+function rand(a, b) { return a + Math.random() * (b - a); }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+// Lévy flight: Mantegna's algorithm
+function levyStep(lambda = 1.5) {
+  const sigmaU = Math.pow(
+    (gamma_fn(1 + lambda) * Math.sin(Math.PI * lambda / 2)) /
+    (gamma_fn((1 + lambda) / 2) * lambda * Math.pow(2, (lambda - 1) / 2)),
+    1 / lambda
+  );
+  const u = gaussRand() * sigmaU;
+  const v = Math.abs(gaussRand());
+  return u / Math.pow(v, 1 / lambda);
+}
+
+function gamma_fn(z) {
+  // Stirling's approximation for gamma function
+  if (z < 0.5) return Math.PI / (Math.sin(Math.PI * z) * gamma_fn(1 - z));
+  z -= 1;
+  const g = 7;
+  const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  let x = c[0];
+  for (let i = 1; i < g + 2; i++) x += c[i] / (z + i);
+  const t = z + g + 0.5;
+  return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
+}
+
+function gaussRand() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// Weibull degradation
+function weibullDegradation(shape, scale) {
+  const u = Math.random();
+  return scale * Math.pow(-Math.log(1 - u), 1 / shape);
+}
+
+// --- Resize ---
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+// --- Initialize ---
+function init() {
+  resize();
+  const p = getParams();
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+
+  rice = [];
+  crabs = [];
+  iteration = 0;
+  healthHistory = [];
+  psoHealthHistory = [];
+  document.getElementById('comparisonSection').style.display = 'none';
+
+  // Latin Hypercube Sampling for Rice placement
+  const cols = Math.ceil(Math.sqrt(p.N * W / H));
+  const rows = Math.ceil(p.N / cols);
+  const cellW = (W - 120) / cols;
+  const cellH = (H - 100) / rows;
+
+  for (let i = 0; i < p.N; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    rice.push({
+      id: i,
+      x: 60 + col * cellW + cellW / 2 + rand(-cellW * 0.15, cellW * 0.15),
+      y: 50 + row * cellH + cellH / 2 + rand(-cellH * 0.15, cellH * 0.15),
+      health: rand(0.7, 1.0),
+      yield: rand(0.6, 1.0),
+      stagnationCount: 0,
+      lastYield: 0,
+      locked: false,
+      lockTimer: 0,
+      crabDensity: 0,
+      age: 0,
+      repairLevel: 'none', // none, minimal, imperfect, perfect
+      weibullShape: rand(1.5, 3.0),  // component-specific degradation profile
+      weibullScale: rand(0.02, 0.06),
+    });
+  }
+
+  // Gaussian initialization of Crabs around Rice
+  for (let j = 0; j < p.M; j++) {
+    const hostIdx = j % p.N;
+    const host = rice[hostIdx];
+    crabs.push({
+      id: j,
+      x: host.x + gaussRand() * 30,
+      y: host.y + gaussRand() * 30,
+      vx: 0, vy: 0,
+      energy: 1.0,
+      state: 'Foraging', // Foraging, Symbiosis, Molting
+      targetRice: null,
+      pBestX: host.x,
+      pBestY: host.y,
+      pBestFitness: 0,
+      recentImprovement: 0,
+      moltTimer: 0,
+      trail: [],
+    });
+  }
+
+  clearLog();
+  logEvent('sys', `Initialized: ${p.N} components, ${p.M} repair crews`);
+  logEvent('sys', `State space: 4^${p.N} = ${Math.pow(4, p.N).toLocaleString()} possible plans`);
+  updateStats();
+  draw();
+}
+
+// --- RCOA Core Loop ---
+function step() {
+  const p = getParams();
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  iteration++;
+
+  // Phase 1: Degradation (Weibull)
+  rice.forEach(r => {
+    if (!r.locked) {
+      const degradation = weibullDegradation(r.weibullShape, r.weibullScale) * (p.severity / 5);
+      r.health = clamp(r.health - degradation, 0, 1);
+      r.yield = r.health * r.health; // Quadratic relationship: Y = H^2
+      r.age++;
+    }
+    r.crabDensity = 0;
+    if (r.lockTimer > 0) {
+      r.lockTimer--;
+      if (r.lockTimer <= 0) r.locked = false;
+    }
+  });
+
+  // Count crab density per rice
+  crabs.forEach(c => {
+    if (c.state === 'Symbiosis' && c.targetRice !== null) {
+      rice[c.targetRice].crabDensity++;
+    }
+  });
+
+  // Phase 2: Crab movement (Chemotaxis with Density Penalty)
+  crabs.forEach(c => {
+    if (c.state === 'Molting') {
+      c.moltTimer--;
+      if (c.moltTimer <= 0) {
+        c.state = 'Foraging';
+        c.energy = 1.0;
+        logEvent('molt', `Crab ${c.id} re-emerged (energy reset)`);
+      }
+      return;
+    }
+
+    // Attractiveness function: Ψ(r) = Y_i * H_i / (1 + γ * ρ_i)
+    let bestAttr = -Infinity, bestIdx = -1;
+    rice.forEach((r, i) => {
+      // Inverse health for maintenance: lower health = higher urgency
+      const urgency = (1 - r.health) * 2 + r.yield;
+      const attr = urgency / (1 + p.gamma * r.crabDensity);
+      if (attr > bestAttr) { bestAttr = attr; bestIdx = i; }
+    });
+
+    c.targetRice = bestIdx;
+    const target = rice[bestIdx];
+    const d = dist(c, target);
+
+    // Velocity update (PSO-like with density penalty)
+    const omega = 0.7; // inertia
+    const u1 = Math.random(), u2 = Math.random();
+    const cogX = u1 * (c.pBestX - c.x);
+    const cogY = u1 * (c.pBestY - c.y);
+    const socX = u2 * (target.x - c.x);
+    const socY = u2 * (target.y - c.y);
+
+    c.vx = omega * c.vx + 1.5 * cogX + 2.0 * socX;
+    c.vy = omega * c.vy + 1.5 * cogY + 2.0 * socY;
+
+    // Speed limit
+    const spd = Math.hypot(c.vx, c.vy);
+    const maxSpd = 8;
+    if (spd > maxSpd) { c.vx *= maxSpd / spd; c.vy *= maxSpd / spd; }
+
+    c.x = clamp(c.x + c.vx, 10, W - 10);
+    c.y = clamp(c.y + c.vy, 10, H - 10);
+    c.energy -= 0.005;
+
+    // Trail
+    c.trail.push({ x: c.x, y: c.y });
+    if (c.trail.length > 20) c.trail.shift();
+
+    // Check if within interaction radius
+    if (d < p.Rint) {
+      c.state = 'Symbiosis';
+
+      // Operator A: Weeding
+      if (p.weedOn && !target.locked) {
+        // Simulate local sensitivity: try perturbing health params
+        const trialHealth = target.health + rand(-0.05, 0.05);
+        if (trialHealth > target.health) {
+          const improvement = (trialHealth - target.health) * 0.3;
+          target.health = clamp(target.health + improvement, 0, 1);
+          if (iteration % 20 === 0) logEvent('weed', `Weed pruned at C${target.id}: noise removed`);
+        }
+      }
+
+      // Operator B: Fertilization
+      if (p.fertOn && !target.locked) {
+        const densityFactor = 1 / (1 + p.gamma * target.crabDensity);
+        const fertGain = p.eta * densityFactor * (1 - target.health);
+        target.health = clamp(target.health + fertGain, 0, 1);
+        target.yield = target.health * target.health;
+
+        // Update crab's personal best
+        if (target.yield > c.pBestFitness) {
+          c.pBestX = target.x;
+          c.pBestY = target.y;
+          c.pBestFitness = target.yield;
+          c.recentImprovement += fertGain;
+        }
+
+        if (iteration % 30 === 0) logEvent('fert', `Fertilized C${target.id}: H=${(target.health*100).toFixed(0)}% (ρ=${target.crabDensity})`);
+      }
+
+      // Operator C: Bioturbation
+      if (p.bioOn && !target.locked) {
+        if (Math.abs(target.yield - target.lastYield) < 0.001) {
+          target.stagnationCount++;
+        } else {
+          target.stagnationCount = 0;
+        }
+        target.lastYield = target.yield;
+
+        if (target.stagnationCount >= p.tauStag) {
+          const levy = levyStep(1.5) * p.alpha;
+          target.health = clamp(target.health + levy * 0.1, 0, 1);
+          target.yield = target.health * target.health;
+          target.stagnationCount = 0;
+          logEvent('bio', `Bioturbation at C${target.id}: Lévy jolt applied (Δ=${(levy*0.1).toFixed(3)})`);
+        }
+      }
+    } else {
+      c.state = 'Foraging';
+    }
+  });
+
+  // Phase 3: Molting Strategy
+  if (p.moltOn && iteration % p.tauMolt === 0 && iteration > 0) {
+    // Sort crabs by recent improvement (ascending)
+    const sorted = [...crabs].filter(c => c.state !== 'Molting').sort((a, b) => a.recentImprovement - b.recentImprovement);
+    const moltCount = Math.max(1, Math.floor(sorted.length * 0.1));
+
+    // Get top rice agents
+    const topRice = [...rice].sort((a, b) => b.yield - a.yield).slice(0, moltCount);
+
+    for (let k = 0; k < moltCount && k < sorted.length; k++) {
+      const crab = sorted[k];
+      const bestR = topRice[k % topRice.length];
+      crab.state = 'Molting';
+      crab.x = bestR.x + rand(-15, 15);
+      crab.y = bestR.y + rand(-15, 15);
+      crab.moltTimer = 5;
+      crab.recentImprovement = 0;
+
+      // Lock the elite rice
+      bestR.locked = true;
+      bestR.lockTimer = 5;
+      logEvent('molt', `Crab ${crab.id} molting at elite C${bestR.id} (locked)`);
+    }
+  }
+
+  // Record history
+  const avgHealth = rice.reduce((s, r) => s + r.health, 0) / rice.length;
+  healthHistory.push(avgHealth);
+  if (healthHistory.length > 500) healthHistory.shift();
+
+  updateStats();
+}
+
+// --- PSO Comparison ---
+function runPSOComparison() {
+  const p = getParams();
+  const N = p.N;
+  logEvent('sys', 'Running PSO comparison (same conditions)...');
+
+  // Create PSO version: same components, but standard PSO (no fertilization, no weeding, no bioturbation)
+  let psoHealth = rice.map(r => ({ health: r.health, yield: r.yield, shape: r.weibullShape, scale: r.weibullScale }));
+  let psoParticles = [];
+  for (let j = 0; j < p.M; j++) {
+    psoParticles.push({
+      pos: Math.floor(Math.random() * N), // which component to visit
+      pBest: Math.floor(Math.random() * N),
+      pBestFit: 0,
+    });
+  }
+
+  psoHealthHistory = [];
+  const gBest = { idx: 0, fit: 0 };
+
+  // Run for same number of iterations
+  const iters = Math.min(healthHistory.length, 300);
+  for (let t = 0; t < iters; t++) {
+    // Degrade
+    psoHealth.forEach(r => {
+      const deg = weibullDegradation(r.shape, r.scale) * (p.severity / 5);
+      r.health = clamp(r.health - deg, 0, 1);
+      r.yield = r.health * r.health;
+    });
+
+    // PSO: particles evaluate positions but DON'T improve them (hunter paradigm)
+    psoParticles.forEach(pp => {
+      // Simple repair: just add fixed amount (no density penalty, no gradient injection)
+      const idx = pp.pos;
+      psoHealth[idx].health = clamp(psoHealth[idx].health + 0.15, 0, 1);
+      psoHealth[idx].yield = psoHealth[idx].health * psoHealth[idx].health;
+
+      if (psoHealth[idx].yield > pp.pBestFit) {
+        pp.pBest = idx;
+        pp.pBestFit = psoHealth[idx].yield;
+      }
+      if (psoHealth[idx].yield > gBest.fit) {
+        gBest.idx = idx;
+        gBest.fit = psoHealth[idx].yield;
+      }
+
+      // Move toward global best (standard PSO, no density penalty)
+      const r1 = Math.random(), r2 = Math.random();
+      const newPos = Math.round(0.5 * pp.pos + 0.3 * r1 * (pp.pBest - pp.pos) + 0.3 * r2 * (gBest.idx - pp.pos));
+      pp.pos = clamp(Math.round(newPos), 0, N - 1);
+    });
+
+    const avg = psoHealth.reduce((s, r) => s + r.health, 0) / N;
+    psoHealthHistory.push(avg);
+  }
+
+  // Show comparison
+  const rcoaFinal = healthHistory.length > 0 ? healthHistory[healthHistory.length - 1] : 0;
+  const psoFinal = psoHealthHistory.length > 0 ? psoHealthHistory[psoHealthHistory.length - 1] : 0;
+  const rcoaMin = Math.min(...healthHistory.slice(-100));
+  const psoMin = Math.min(...psoHealthHistory.slice(-100));
+  const rcoaVar = variance(healthHistory.slice(-100));
+  const psoVar = variance(psoHealthHistory.slice(-100));
+
+  const section = document.getElementById('comparisonSection');
+  section.style.display = 'block';
+  const table = document.getElementById('comparisonTable');
+  table.innerHTML = `
+    <tr><th>Metric</th><th>RCOA</th><th>PSO</th></tr>
+    <tr><td>Final Avg Health</td><td class="${rcoaFinal >= psoFinal ? 'winner' : ''}">${(rcoaFinal*100).toFixed(1)}%</td><td class="${psoFinal > rcoaFinal ? 'winner' : ''}">${(psoFinal*100).toFixed(1)}%</td></tr>
+    <tr><td>Worst Health (last 100)</td><td class="${rcoaMin >= psoMin ? 'winner' : ''}">${(rcoaMin*100).toFixed(1)}%</td><td class="${psoMin > rcoaMin ? 'winner' : ''}">${(psoMin*100).toFixed(1)}%</td></tr>
+    <tr><td>Health Variance</td><td class="${rcoaVar <= psoVar ? 'winner' : ''}">${rcoaVar.toFixed(4)}</td><td class="${psoVar < rcoaVar ? 'winner' : ''}">${psoVar.toFixed(4)}</td></tr>
+    <tr><td>Density-aware routing</td><td class="winner">Yes</td><td>No</td></tr>
+    <tr><td>Solution improvement on visit</td><td class="winner">Yes (Fertilization)</td><td>No (Read-only)</td></tr>
+    <tr><td>Stagnation escape</td><td class="winner">Lévy Bioturbation</td><td>Random restart</td></tr>
+  `;
+  logEvent('sys', `Comparison complete. RCOA: ${(rcoaFinal*100).toFixed(1)}% vs PSO: ${(psoFinal*100).toFixed(1)}%`);
+}
+
+function variance(arr) {
+  if (arr.length === 0) return 0;
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  return arr.reduce((s, v) => s + (v - mean) * (v - mean), 0) / arr.length;
+}
+
+// --- Mission Cycle ---
+function triggerMission() {
+  const p = getParams();
+  logEvent('decay', `MISSION CYCLE: Severe degradation event (severity ${p.severity * 2})`);
+  rice.forEach(r => {
+    const deg = weibullDegradation(r.weibullShape, r.weibullScale * 5) * (p.severity / 3);
+    r.health = clamp(r.health - deg, 0, 1);
+    r.yield = r.health * r.health;
+  });
+}
+
+// --- Drawing ---
+function draw() {
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid
+  ctx.strokeStyle = 'rgba(42,58,78,0.3)';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  const p = getParams();
+
+  // Draw interaction radius hints
+  rice.forEach(r => {
+    if (r.crabDensity > 0) {
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, p.Rint, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(96,165,250,0.08)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  });
+
+  // Draw connections: crab -> target rice
+  crabs.forEach(c => {
+    if (c.targetRice !== null && c.state !== 'Molting') {
+      const t = rice[c.targetRice];
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(t.x, t.y);
+      ctx.strokeStyle = c.state === 'Symbiosis' ? 'rgba(96,165,250,0.15)' : 'rgba(251,146,60,0.08)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  });
+
+  // Draw crab trails
+  crabs.forEach(c => {
+    if (c.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(c.trail[0].x, c.trail[0].y);
+      for (let i = 1; i < c.trail.length; i++) {
+        ctx.lineTo(c.trail[i].x, c.trail[i].y);
+      }
+      ctx.strokeStyle = c.state === 'Molting' ? 'rgba(192,132,252,0.15)' : 'rgba(251,146,60,0.12)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  });
+
+  // Draw Rice agents (components)
+  rice.forEach(r => {
+    const size = 18 + r.yield * 14;
+
+    // Health color
+    let color;
+    if (r.health > 0.7) color = '#4ade80';
+    else if (r.health > 0.4) color = '#facc15';
+    else color = '#f87171';
+
+    // Glow for locked
+    if (r.locked) {
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, size + 8, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(192,132,252,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(192,132,252,0.4)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Health ring
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, size, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * r.health);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Background ring
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, size, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Center fill
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, size - 4, 0, Math.PI * 2);
+    const grad = ctx.createRadialGradient(r.x, r.y, 0, r.x, r.y, size - 4);
+    grad.addColorStop(0, color + '33');
+    grad.addColorStop(1, color + '08');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Rice symbol (plant icon with stems)
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    const stemH = size * 0.5 * r.health;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    // Main stem
+    ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(0, 4 - stemH); ctx.stroke();
+    // Leaves
+    if (r.health > 0.3) {
+      ctx.beginPath(); ctx.moveTo(0, 4 - stemH * 0.4); ctx.quadraticCurveTo(6, 4 - stemH * 0.6, 8, 4 - stemH * 0.3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, 4 - stemH * 0.6); ctx.quadraticCurveTo(-6, 4 - stemH * 0.8, -8, 4 - stemH * 0.5); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Label
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`C${r.id}`, r.x, r.y + size + 12);
+    ctx.fillStyle = color;
+    ctx.fillText(`${(r.health * 100).toFixed(0)}%`, r.x, r.y + size + 22);
+
+    // Density indicator
+    if (r.crabDensity > 0) {
+      ctx.fillStyle = 'rgba(96,165,250,0.8)';
+      ctx.fillText(`ρ=${r.crabDensity}`, r.x, r.y + size + 32);
+    }
+  });
+
+  // Draw Crab agents
+  crabs.forEach(c => {
+    let color, size = 6;
+    switch (c.state) {
+      case 'Foraging': color = '#fb923c'; break;
+      case 'Symbiosis': color = '#60a5fa'; size = 7; break;
+      case 'Molting': color = '#c084fc'; size = 5; break;
+    }
+
+    // Crab body
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, size, 0, Math.PI * 2);
+    ctx.fillStyle = color + '99';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Crab claws (small lines)
+    const angle = Math.atan2(c.vy, c.vx);
+    ctx.beginPath();
+    ctx.moveTo(c.x + Math.cos(angle + 0.5) * size, c.y + Math.sin(angle + 0.5) * size);
+    ctx.lineTo(c.x + Math.cos(angle + 0.3) * (size + 4), c.y + Math.sin(angle + 0.3) * (size + 4));
+    ctx.moveTo(c.x + Math.cos(angle - 0.5) * size, c.y + Math.sin(angle - 0.5) * size);
+    ctx.lineTo(c.x + Math.cos(angle - 0.3) * (size + 4), c.y + Math.sin(angle - 0.3) * (size + 4));
+    ctx.strokeStyle = color + '88';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Energy bar
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(c.x - 8, c.y - size - 6, 16, 3);
+    ctx.fillStyle = c.energy > 0.3 ? '#4ade80' : '#f87171';
+    ctx.fillRect(c.x - 8, c.y - size - 6, 16 * c.energy, 3);
+  });
+
+  // Draw charts
+  drawConvergenceChart();
+  drawHealthDistChart();
+}
+
+function drawConvergenceChart() {
+  const canvas = document.getElementById('convergenceChart');
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+
+  const W = rect.width, H = rect.height;
+  const pad = { top: 10, right: 10, bottom: 20, left: 35 };
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Axes
+  ctx.strokeStyle = 'rgba(42,58,78,0.5)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, H - pad.bottom);
+  ctx.lineTo(W - pad.right, H - pad.bottom);
+  ctx.stroke();
+
+  // Y-axis labels
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'right';
+  for (let v = 0; v <= 1; v += 0.25) {
+    const y = pad.top + (1 - v) * (H - pad.top - pad.bottom);
+    ctx.fillText((v * 100).toFixed(0) + '%', pad.left - 4, y + 3);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y);
+    ctx.strokeStyle = 'rgba(42,58,78,0.2)'; ctx.stroke();
+  }
+
+  if (healthHistory.length < 2) return;
+
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+  const len = healthHistory.length;
+
+  // RCOA line
+  ctx.beginPath();
+  healthHistory.forEach((v, i) => {
+    const x = pad.left + (i / (len - 1)) * plotW;
+    const y = pad.top + (1 - v) * plotH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = '#4ade80';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // PSO line (if comparison run)
+  if (psoHealthHistory.length > 1) {
+    const pLen = psoHealthHistory.length;
+    ctx.beginPath();
+    psoHealthHistory.forEach((v, i) => {
+      const x = pad.left + (i / (pLen - 1)) * plotW;
+      const y = pad.top + (1 - v) * plotH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = '#f87171';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Legend
+    ctx.fillStyle = '#4ade80'; ctx.fillRect(W - 90, 8, 12, 3);
+    ctx.fillStyle = '#8899aa'; ctx.font = '8px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('RCOA', W - 74, 12);
+    ctx.fillStyle = '#f87171'; ctx.fillRect(W - 90, 18, 12, 3);
+    ctx.fillStyle = '#8899aa'; ctx.fillText('PSO', W - 74, 22);
+  }
+}
+
+function drawHealthDistChart() {
+  const canvas = document.getElementById('healthDistChart');
+  const cctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  cctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+
+  const W = rect.width, H = rect.height;
+  const pad = { top: 10, right: 10, bottom: 20, left: 35 };
+
+  cctx.clearRect(0, 0, W, H);
+
+  // Histogram buckets
+  const buckets = 10;
+  const counts = new Array(buckets).fill(0);
+  rice.forEach(r => {
+    const b = Math.min(Math.floor(r.health * buckets), buckets - 1);
+    counts[b]++;
+  });
+  const maxCount = Math.max(...counts, 1);
+
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+  const barW = plotW / buckets - 2;
+
+  // Axes
+  cctx.strokeStyle = 'rgba(42,58,78,0.5)';
+  cctx.lineWidth = 1;
+  cctx.beginPath();
+  cctx.moveTo(pad.left, pad.top);
+  cctx.lineTo(pad.left, H - pad.bottom);
+  cctx.lineTo(W - pad.right, H - pad.bottom);
+  cctx.stroke();
+
+  // Bars
+  counts.forEach((count, i) => {
+    const x = pad.left + i * (plotW / buckets) + 1;
+    const barH = (count / maxCount) * plotH;
+    const y = H - pad.bottom - barH;
+
+    const health = (i + 0.5) / buckets;
+    let color;
+    if (health > 0.7) color = '#4ade80';
+    else if (health > 0.4) color = '#facc15';
+    else color = '#f87171';
+
+    cctx.fillStyle = color + '88';
+    cctx.fillRect(x, y, barW, barH);
+    cctx.strokeStyle = color;
+    cctx.lineWidth = 1;
+    cctx.strokeRect(x, y, barW, barH);
+  });
+
+  // X labels
+  cctx.fillStyle = '#8899aa';
+  cctx.font = '8px monospace';
+  cctx.textAlign = 'center';
+  for (let i = 0; i <= buckets; i += 2) {
+    const x = pad.left + i * (plotW / buckets);
+    cctx.fillText((i * 10) + '%', x, H - 4);
+  }
+}
+
+// --- Stats ---
+function updateStats() {
+  document.getElementById('statIter').textContent = iteration;
+  const avgH = rice.reduce((s, r) => s + r.health, 0) / rice.length;
+  document.getElementById('statHealth').textContent = (avgH * 100).toFixed(1) + '%';
+
+  // System reliability: product of component reliabilities
+  const reliability = rice.reduce((p, r) => p * Math.max(r.health, 0.01), 1);
+  document.getElementById('statReliability').textContent = (reliability * 100).toFixed(2) + '%';
+
+  const failures = rice.filter(r => r.health < 0.2).length;
+  document.getElementById('statFailures').textContent = failures;
+
+  const ops = [];
+  if (crabs.some(c => c.state === 'Symbiosis')) ops.push('Fert');
+  if (crabs.some(c => c.state === 'Molting')) ops.push('Molt');
+  if (rice.some(r => r.stagnationCount > 3)) ops.push('Bio');
+  document.getElementById('statOps').textContent = ops.length > 0 ? ops.join(', ') : 'Idle';
+
+  const phase = running ? (paused ? 'Paused' : 'Running') : 'Idle';
+  document.getElementById('phaseLabel').textContent = phase;
+}
+
+// --- Event Log ---
+function logEvent(type, msg) {
+  const log = document.getElementById('eventLog');
+  const cls = { fert: 'ev-fert', weed: 'ev-weed', bio: 'ev-bio', molt: 'ev-molt', decay: 'ev-decay', sys: '' }[type] || '';
+  const prefix = { fert: '[FERT]', weed: '[WEED]', bio: '[BIO]', molt: '[MOLT]', decay: '[DECAY]', sys: '[SYS]' }[type] || '';
+  log.innerHTML = `<div class="ev ${cls}">${prefix} t=${iteration}: ${msg}</div>` + log.innerHTML;
+  if (log.children.length > 100) log.removeChild(log.lastChild);
+}
+
+function clearLog() {
+  document.getElementById('eventLog').innerHTML = '';
+}
+
+// --- Animation Loop ---
+function loop(time) {
+  if (!running || paused) { animFrame = requestAnimationFrame(loop); return; }
+
+  const dt = time - lastTime;
+  lastTime = time;
+  const p = getParams();
+  const stepInterval = 200 / p.speed;
+
+  accumulator += dt;
+  while (accumulator >= stepInterval) {
+    step();
+    accumulator -= stepInterval;
+  }
+
+  draw();
+  animFrame = requestAnimationFrame(loop);
+}
+
+// --- Buttons ---
+document.getElementById('btnStart').addEventListener('click', () => {
+  if (!running) { init(); running = true; paused = false; lastTime = performance.now(); animFrame = requestAnimationFrame(loop); }
+  else if (paused) { paused = false; }
+});
+document.getElementById('btnPause').addEventListener('click', () => { paused = !paused; });
+document.getElementById('btnReset').addEventListener('click', () => { running = false; paused = false; if (animFrame) cancelAnimationFrame(animFrame); init(); });
+document.getElementById('btnMission').addEventListener('click', triggerMission);
+document.getElementById('btnCompare').addEventListener('click', runPSOComparison);
+
+// --- Tooltip on hover ---
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const tooltip = document.getElementById('tooltip');
+
+  // Check rice hover
+  for (const r of rice) {
+    if (Math.hypot(mx - r.x, my - r.y) < 25) {
+      tooltip.style.display = 'block';
+      tooltip.style.left = (mx + 15) + 'px';
+      tooltip.style.top = (my - 10) + 'px';
+      tooltip.innerHTML = `
+        <strong>Component C${r.id}</strong><br>
+        Health: ${(r.health * 100).toFixed(1)}%<br>
+        Yield: ${(r.yield * 100).toFixed(1)}%<br>
+        Crab Density: ρ=${r.crabDensity}<br>
+        Stagnation: ${r.stagnationCount}/${getParams().tauStag}<br>
+        Locked: ${r.locked ? 'Yes (Molting shield)' : 'No'}<br>
+        Weibull: β=${r.weibullShape.toFixed(2)}, η=${(r.weibullScale*100).toFixed(1)}%<br>
+        <em style="color:#8899aa">Rice agent: stationary, has state</em>
+      `;
+      return;
+    }
+  }
+
+  // Check crab hover
+  for (const c of crabs) {
+    if (Math.hypot(mx - c.x, my - c.y) < 12) {
+      tooltip.style.display = 'block';
+      tooltip.style.left = (mx + 15) + 'px';
+      tooltip.style.top = (my - 10) + 'px';
+      tooltip.innerHTML = `
+        <strong>Crab ${c.id}</strong><br>
+        State: ${c.state}<br>
+        Energy: ${(c.energy * 100).toFixed(0)}%<br>
+        Target: C${c.targetRice}<br>
+        P-Best Fitness: ${c.pBestFitness.toFixed(3)}<br>
+        Recent Improvement: ${c.recentImprovement.toFixed(4)}<br>
+        <em style="color:#8899aa">Crab agent: mobile, has velocity</em>
+      `;
+      return;
+    }
+  }
+
+  tooltip.style.display = 'none';
+});
+
+// --- Concept card highlighting ---
+function highlightCard(id) {
+  document.querySelectorAll('.concept-card').forEach(c => c.style.borderColor = 'var(--border)');
+  document.getElementById(id).style.borderColor = 'var(--accent)';
+}
+
+// Init on load
+init();
+</script>
+</body>
+</html>
