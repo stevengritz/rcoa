@@ -236,6 +236,12 @@
       <div class="btn-row" style="margin-top:8px;">
         <button class="btn" id="btnCompare">Run PSO Comparison</button>
       </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn" id="btnAblation">Run Ablation Study</button>
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn" id="btnHeadless">Headless Benchmark (200 iter)</button>
+      </div>
     </div>
 
     <div class="panel-section">
@@ -297,6 +303,19 @@
       <table class="comparison-table" id="comparisonTable">
         <tr><th>Metric</th><th>RCOA</th><th>PSO</th></tr>
       </table>
+    </div>
+
+    <div class="panel-section" id="ablationSection" style="display:none;">
+      <h3>Ablation Study</h3>
+      <p style="font-size:0.68em;color:var(--text-dim);margin-bottom:6px;">Each operator disabled individually to measure contribution.</p>
+      <table class="comparison-table" id="ablationTable">
+        <tr><th>Configuration</th><th>Avg Health</th><th>Worst</th></tr>
+      </table>
+    </div>
+
+    <div class="panel-section" id="headlessSection" style="display:none;">
+      <h3>Headless Benchmark Results</h3>
+      <div id="headlessResults" style="font-size:0.68em;line-height:1.8;color:var(--text-dim);"></div>
     </div>
 
     <div class="panel-section">
@@ -1185,6 +1204,8 @@ document.getElementById('btnPause').addEventListener('click', () => { paused = !
 document.getElementById('btnReset').addEventListener('click', () => { running = false; paused = false; if (animFrame) cancelAnimationFrame(animFrame); init(); });
 document.getElementById('btnMission').addEventListener('click', triggerMission);
 document.getElementById('btnCompare').addEventListener('click', runPSOComparison);
+document.getElementById('btnAblation').addEventListener('click', runAblationStudy);
+document.getElementById('btnHeadless').addEventListener('click', runHeadlessBenchmark);
 
 // --- Tooltip on hover ---
 canvas.addEventListener('mousemove', (e) => {
@@ -1239,6 +1260,187 @@ canvas.addEventListener('mousemove', (e) => {
 function highlightCard(id) {
   document.querySelectorAll('.concept-card').forEach(c => c.style.borderColor = 'var(--border)');
   document.getElementById(id).style.borderColor = 'var(--accent)';
+}
+
+// --- Ablation Study ---
+function runAblationStudy() {
+  logEvent('sys', 'Running ablation study (200 iterations each)...');
+  const p = getParams();
+  const N = p.N;
+  const configs = [
+    { name: 'Full RCOA', fert: true, weed: true, bio: true, molt: true },
+    { name: 'No Fertilization', fert: false, weed: true, bio: true, molt: true },
+    { name: 'No Weeding', fert: true, weed: false, bio: true, molt: true },
+    { name: 'No Bioturbation', fert: true, weed: true, bio: false, molt: true },
+    { name: 'No Molting', fert: true, weed: true, bio: true, molt: false },
+    { name: 'None (degradation only)', fert: false, weed: false, bio: false, molt: false },
+  ];
+
+  const results = [];
+  for (const cfg of configs) {
+    const riceH = Array.from({ length: N }, () => rand(0.7, 1.0));
+    const shapes = Array.from({ length: N }, () => rand(1.5, 3.0));
+    const scales = Array.from({ length: N }, () => rand(0.02, 0.06));
+    const M = p.M;
+    const targets = Array(M).fill(0);
+    const density = Array(N).fill(0);
+
+    for (let t = 0; t < 200; t++) {
+      // Degrade all
+      for (let i = 0; i < N; i++) {
+        const deg = scales[i] * Math.pow(-Math.log(1 - Math.random()), 1 / shapes[i]) * (p.severity / 8);
+        riceH[i] = clamp(riceH[i] - deg, 0, 1);
+      }
+
+      // Density-penalized targeting
+      density.fill(0);
+      for (let j = 0; j < M; j++) {
+        let bestAttr = -Infinity, bestIdx = 0;
+        for (let i = 0; i < N; i++) {
+          const urgency = (1 - riceH[i]) * 2 + 0.5;
+          const attr = urgency / (1 + p.gamma * density[i]);
+          if (attr > bestAttr) { bestAttr = attr; bestIdx = i; }
+        }
+        targets[j] = bestIdx;
+        density[bestIdx]++;
+      }
+
+      // Apply enabled operators
+      for (let j = 0; j < M; j++) {
+        const idx = targets[j];
+        if (cfg.fert) {
+          const densF = 1 / (1 + p.gamma * density[idx]);
+          riceH[idx] = clamp(riceH[idx] + p.eta * densF * (1 - riceH[idx]), 0, 1);
+        }
+        if (cfg.weed) {
+          if (Math.random() < 0.1) riceH[idx] = clamp(riceH[idx] + rand(0, 0.02), 0, 1);
+        }
+        if (cfg.bio && riceH[idx] < 0.3 && Math.random() < 0.15) {
+          riceH[idx] = clamp(riceH[idx] + Math.abs(levyStep(1.5)) * 0.05, 0, 1);
+        }
+      }
+
+      // Molting: lock best, pause weakest crab
+      if (cfg.molt && t % p.tauMolt === 0 && t > 0) {
+        const bestI = riceH.indexOf(Math.max(...riceH));
+        // Locked agents don't degrade as fast (simplified)
+        riceH[bestI] = clamp(riceH[bestI] + 0.02, 0, 1);
+      }
+    }
+
+    const avg = riceH.reduce((s, h) => s + h, 0) / N;
+    const worst = Math.min(...riceH);
+    results.push({ name: cfg.name, avg, worst });
+  }
+
+  // Display
+  document.getElementById('ablationSection').style.display = 'block';
+  const table = document.getElementById('ablationTable');
+  let html = '<tr><th>Configuration</th><th>Avg Health</th><th>Worst</th></tr>';
+  const fullAvg = results[0].avg;
+  results.forEach(r => {
+    const isBest = r.avg === Math.max(...results.map(x => x.avg));
+    html += `<tr><td>${r.name}</td>` +
+      `<td class="${isBest ? 'winner' : ''}">${(r.avg * 100).toFixed(1)}%</td>` +
+      `<td>${(r.worst * 100).toFixed(1)}%</td></tr>`;
+  });
+  table.innerHTML = html;
+  logEvent('sys', `Ablation complete. Full RCOA: ${(results[0].avg * 100).toFixed(1)}% vs None: ${(results[5].avg * 100).toFixed(1)}%`);
+}
+
+// --- Headless Benchmark ---
+function runHeadlessBenchmark() {
+  logEvent('sys', 'Running headless benchmark (5 runs x 200 iterations)...');
+  const p = getParams();
+  const N = p.N;
+  const M = p.M;
+  const nRuns = 5;
+  const nIters = 200;
+
+  const rcoaResults = [], psoResults = [], noneResults = [];
+
+  for (let run = 0; run < nRuns; run++) {
+    const shapes = Array.from({ length: N }, () => rand(1.5, 3.0));
+    const scales = Array.from({ length: N }, () => rand(0.02, 0.06));
+
+    // RCOA run
+    const rH = Array.from({ length: N }, () => rand(0.7, 1.0));
+    for (let t = 0; t < nIters; t++) {
+      for (let i = 0; i < N; i++) {
+        const deg = scales[i] * Math.pow(-Math.log(1 - Math.random()), 1 / shapes[i]) * (p.severity / 8);
+        rH[i] = clamp(rH[i] - deg, 0, 1);
+      }
+      const density = Array(N).fill(0);
+      const targets = [];
+      for (let j = 0; j < M; j++) {
+        let bestAttr = -Infinity, bestIdx = 0;
+        for (let i = 0; i < N; i++) {
+          const attr = ((1 - rH[i]) * 2 + 0.5) / (1 + p.gamma * density[i]);
+          if (attr > bestAttr) { bestAttr = attr; bestIdx = i; }
+        }
+        targets.push(bestIdx);
+        density[bestIdx]++;
+      }
+      for (let j = 0; j < M; j++) {
+        const idx = targets[j];
+        const densF = 1 / (1 + p.gamma * density[idx]);
+        rH[idx] = clamp(rH[idx] + p.eta * densF * (1 - rH[idx]), 0, 1);
+        if (rH[idx] < 0.3 && Math.random() < 0.1) {
+          rH[idx] = clamp(rH[idx] + Math.abs(levyStep(1.5)) * 0.05, 0, 1);
+        }
+      }
+    }
+    rcoaResults.push(rH.reduce((s, h) => s + h, 0) / N);
+
+    // PSO run (no density penalty)
+    const pH = Array.from({ length: N }, () => rand(0.7, 1.0));
+    const psoTargets = Array.from({ length: M }, () => Math.floor(Math.random() * N));
+    let gBest = 0;
+    for (let t = 0; t < nIters; t++) {
+      for (let i = 0; i < N; i++) {
+        const deg = scales[i] * Math.pow(-Math.log(1 - Math.random()), 1 / shapes[i]) * (p.severity / 8);
+        pH[i] = clamp(pH[i] - deg, 0, 1);
+      }
+      for (let j = 0; j < M; j++) {
+        pH[psoTargets[j]] = clamp(pH[psoTargets[j]] + 0.15, 0, 1);
+        const r1 = Math.random(), r2 = Math.random();
+        psoTargets[j] = clamp(Math.round(0.5 * psoTargets[j] + 0.5 * r2 * (gBest - psoTargets[j])), 0, N - 1);
+        if (pH[psoTargets[j]] > pH[gBest]) gBest = psoTargets[j];
+      }
+    }
+    psoResults.push(pH.reduce((s, h) => s + h, 0) / N);
+
+    // No maintenance baseline
+    const nH = Array.from({ length: N }, () => rand(0.7, 1.0));
+    for (let t = 0; t < nIters; t++) {
+      for (let i = 0; i < N; i++) {
+        const deg = scales[i] * Math.pow(-Math.log(1 - Math.random()), 1 / shapes[i]) * (p.severity / 8);
+        nH[i] = clamp(nH[i] - deg, 0, 1);
+      }
+    }
+    noneResults.push(nH.reduce((s, h) => s + h, 0) / N);
+  }
+
+  const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const stdev = arr => { const m = avg(arr); return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / arr.length); };
+
+  document.getElementById('headlessSection').style.display = 'block';
+  document.getElementById('headlessResults').innerHTML = `
+    <div style="margin-bottom:4px;"><strong style="color:var(--rice-green)">RCOA:</strong> ${(avg(rcoaResults) * 100).toFixed(1)}% +/- ${(stdev(rcoaResults) * 100).toFixed(1)}%</div>
+    <div style="margin-bottom:4px;"><strong style="color:var(--rice-red)">PSO:</strong> ${(avg(psoResults) * 100).toFixed(1)}% +/- ${(stdev(psoResults) * 100).toFixed(1)}%</div>
+    <div style="margin-bottom:4px;"><strong style="color:var(--text-dim)">None:</strong> ${(avg(noneResults) * 100).toFixed(1)}% +/- ${(stdev(noneResults) * 100).toFixed(1)}%</div>
+    <div style="margin-top:6px;font-size:0.9em;color:var(--accent)">
+      RCOA wins: ${rcoaResults.filter((v, i) => v > psoResults[i]).length}/${nRuns} vs PSO<br>
+      Config: N=${N}, M=${M}, &gamma;=${p.gamma.toFixed(2)}, &eta;=${p.eta.toFixed(2)}, severity=${p.severity}
+    </div>
+    <div style="margin-top:6px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:4px;">
+      <strong style="color:var(--rice-yellow)">Honest Assessment:</strong><br>
+      RCOA excels at maintenance scheduling where density-penalized resource allocation matches the problem structure.
+      On standard optimization benchmarks (Sphere, Ackley), RCOA underperforms PSO/DE due to dual-population overhead.
+      The advantage is structural, not universal.
+    </div>
+  `;
+  logEvent('sys', `Headless: RCOA ${(avg(rcoaResults) * 100).toFixed(1)}% vs PSO ${(avg(psoResults) * 100).toFixed(1)}% vs None ${(avg(noneResults) * 100).toFixed(1)}%`);
 }
 
 // Init on load
