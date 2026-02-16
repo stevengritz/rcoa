@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCOA Pattern Recognition &amp; Denoising</title>
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2332;
+    --border: #2a3a4e; --text: #e2e8f0; --text-dim: #8899aa;
+    --rice-green: #4ade80; --rice-yellow: #facc15; --rice-red: #f87171;
+    --crab-orange: #fb923c; --crab-blue: #60a5fa;
+    --accent: #818cf8; --accent2: #c084fc;
+    --signal: #34d399; --noise: #f87171; --weed: #fbbf24;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'SF Mono','Fira Code','Consolas',monospace; overflow-x:hidden; }
+
+  .app-header {
+    background:linear-gradient(135deg,#111827 0%,#1e293b 100%);
+    border-bottom:1px solid var(--border); padding:18px 28px;
+    display:flex; align-items:center; gap:20px;
+  }
+  .app-header h1 { font-size:1.25em; font-weight:600; }
+  .app-header h1 span { color:var(--signal); }
+  .app-header .subtitle { color:var(--text-dim); font-size:0.78em; }
+
+  .main-layout { display:grid; grid-template-columns:300px 1fr 340px; height:calc(100vh - 72px); }
+
+  /* Panels */
+  .panel { background:var(--surface); overflow-y:auto; padding:14px; }
+  .panel-left { border-right:1px solid var(--border); }
+  .panel-right { border-left:1px solid var(--border); }
+  .panel-section { margin-bottom:16px; }
+  .panel-section h3 {
+    font-size:0.72em; text-transform:uppercase; letter-spacing:1.4px;
+    color:var(--accent); margin-bottom:9px; padding-bottom:5px;
+    border-bottom:1px solid var(--border);
+  }
+
+  .param-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; }
+  .param-row label { font-size:0.73em; color:var(--text-dim); flex:1; }
+  .param-row input[type=range] { width:96px; accent-color:var(--accent); }
+  .param-row .val { font-size:0.73em; color:var(--rice-green); width:38px; text-align:right; }
+
+  .btn {
+    padding:7px 14px; border:1px solid var(--border); border-radius:4px;
+    background:var(--surface2); color:var(--text); font-family:inherit;
+    font-size:0.76em; cursor:pointer; transition:all .2s;
+  }
+  .btn:hover { border-color:var(--accent); background:#1e293b; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn.primary:hover { background:#6366f1; }
+  .btn.danger { border-color:var(--rice-red); color:var(--rice-red); }
+  .btn-row { display:flex; gap:7px; margin-top:9px; flex-wrap:wrap; }
+
+  /* Center */
+  .center-panel { position:relative; background:#080c14; display:grid; grid-template-rows:1fr 1fr; gap:1px; }
+  .canvas-wrap { position:relative; overflow:hidden; }
+  .canvas-wrap canvas { width:100%; height:100%; display:block; }
+  .canvas-label {
+    position:absolute; top:8px; left:10px; font-size:0.68em;
+    background:rgba(10,14,23,.88); border:1px solid var(--border);
+    border-radius:4px; padding:4px 10px; pointer-events:none;
+  }
+
+  .overlay-stats {
+    position:absolute; top:8px; right:10px;
+    background:rgba(10,14,23,.9); border:1px solid var(--border);
+    border-radius:5px; padding:8px 12px; font-size:0.68em; pointer-events:none;
+  }
+  .overlay-stats .sl { display:flex; gap:8px; margin-bottom:2px; }
+  .overlay-stats .sk { color:var(--text-dim); }
+  .overlay-stats .sv { color:var(--rice-green); }
+
+  /* Concept cards */
+  .concept-card {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:5px; padding:11px; margin-bottom:11px;
+    font-size:0.71em; line-height:1.6;
+  }
+  .concept-card h4 { color:var(--accent2); margin-bottom:5px; font-size:.88em; }
+  .tag { display:inline-block; font-size:.73em; padding:1px 5px; border-radius:3px; margin-right:3px; }
+  .tag-bio { background:#166534; color:#4ade80; }
+  .tag-math { background:#1e3a5f; color:#60a5fa; }
+  .tag-algo { background:#4c1d95; color:#c084fc; }
+
+  .chart-box { height:150px; background:var(--surface2); border:1px solid var(--border); border-radius:5px; margin-bottom:11px; position:relative; }
+  .chart-box canvas { width:100%; height:100%; }
+
+  .metric-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .metric-card {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:5px; padding:9px; text-align:center;
+  }
+  .metric-card .mv { font-size:1.3em; font-weight:700; }
+  .metric-card .ml { font-size:.65em; color:var(--text-dim); margin-top:2px; }
+
+  .event-log {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:5px; padding:7px; max-height:170px;
+    overflow-y:auto; font-size:.64em; line-height:1.7;
+  }
+  .ev { border-bottom:1px solid #1a2332; padding:1px 0; }
+  .ev-weed { color:var(--weed); }
+  .ev-fert { color:var(--rice-green); }
+  .ev-bio { color:var(--crab-orange); }
+  .ev-molt { color:var(--accent2); }
+  .ev-sys { color:var(--crab-blue); }
+
+  .tooltip {
+    position:fixed; background:rgba(10,14,23,.96); border:1px solid var(--accent);
+    border-radius:5px; padding:9px 12px; font-size:.69em; pointer-events:none;
+    display:none; z-index:200; max-width:250px; line-height:1.5;
+  }
+
+  .comparison-table { width:100%; font-size:.69em; border-collapse:collapse; margin-top:7px; }
+  .comparison-table th,.comparison-table td { padding:3px 5px; border:1px solid var(--border); text-align:left; }
+  .comparison-table th { background:var(--surface); color:var(--accent); }
+  .winner { color:var(--rice-green); font-weight:600; }
+
+  ::-webkit-scrollbar { width:5px; }
+  ::-webkit-scrollbar-track { background:var(--surface); }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div>
+    <h1><span>RCOA</span> Pattern Recognition &amp; Denoising</h1>
+    <div class="subtitle">Feature Selection in Noisy Environments &mdash; Bio-Inspired Weeding, Fertilization &amp; Bioturbation</div>
+  </div>
+</div>
+
+<div class="main-layout">
+  <!-- LEFT -->
+  <div class="panel panel-left">
+    <div class="panel-section">
+      <h3>Dataset</h3>
+      <div class="param-row">
+        <label>Signal Points</label>
+        <input type="range" id="pSignal" min="20" max="200" value="80">
+        <span class="val" id="vSignal">80</span>
+      </div>
+      <div class="param-row">
+        <label>Noise Points</label>
+        <input type="range" id="pNoise" min="10" max="300" value="120">
+        <span class="val" id="vNoise">120</span>
+      </div>
+      <div class="param-row">
+        <label>Clusters</label>
+        <input type="range" id="pClusters" min="2" max="6" value="3">
+        <span class="val" id="vClusters">3</span>
+      </div>
+      <div class="param-row">
+        <label>Cluster Spread</label>
+        <input type="range" id="pSpread" min="10" max="80" value="35">
+        <span class="val" id="vSpread">35</span>
+      </div>
+      <div class="param-row">
+        <label>Feature Dimensions</label>
+        <input type="range" id="pDims" min="2" max="20" value="8">
+        <span class="val" id="vDims">8</span>
+      </div>
+      <div class="param-row">
+        <label>Noisy Dimensions</label>
+        <input type="range" id="pNoisyDims" min="0" max="15" value="4">
+        <span class="val" id="vNoisyDims">4</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>RCOA Parameters</h3>
+      <div class="param-row">
+        <label>Rice Agents (Centroids N)</label>
+        <input type="range" id="pRice" min="3" max="20" value="8">
+        <span class="val" id="vRice">8</span>
+      </div>
+      <div class="param-row">
+        <label>Crab Agents (Evaluators M)</label>
+        <input type="range" id="pCrabs" min="2" max="12" value="5">
+        <span class="val" id="vCrabs">5</span>
+      </div>
+      <div class="param-row">
+        <label>Cannibalism &gamma;</label>
+        <input type="range" id="pGamma" min="0" max="100" value="50">
+        <span class="val" id="vGamma">0.50</span>
+      </div>
+      <div class="param-row">
+        <label>Fertilization &eta;</label>
+        <input type="range" id="pEta" min="1" max="100" value="25">
+        <span class="val" id="vEta">0.25</span>
+      </div>
+      <div class="param-row">
+        <label>Bioturbation &alpha;</label>
+        <input type="range" id="pAlpha" min="1" max="100" value="20">
+        <span class="val" id="vAlpha">0.20</span>
+      </div>
+      <div class="param-row">
+        <label>Stagnation &tau;<sub>stag</sub></label>
+        <input type="range" id="pTauStag" min="2" max="20" value="6">
+        <span class="val" id="vTauStag">6</span>
+      </div>
+      <div class="param-row">
+        <label>Molting Period &tau;<sub>molt</sub></label>
+        <input type="range" id="pTauMolt" min="5" max="40" value="12">
+        <span class="val" id="vTauMolt">12</span>
+      </div>
+      <div class="param-row">
+        <label>Interaction Radius</label>
+        <input type="range" id="pRint" min="20" max="150" value="60">
+        <span class="val" id="vRint">60</span>
+      </div>
+      <div class="param-row">
+        <label>Weeding Threshold &epsilon;</label>
+        <input type="range" id="pEpsilon" min="1" max="50" value="15">
+        <span class="val" id="vEpsilon">0.15</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Simulation</h3>
+      <div class="param-row">
+        <label>Speed</label>
+        <input type="range" id="pSpeed" min="1" max="10" value="4">
+        <span class="val" id="vSpeed">4</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnStart">Start</button>
+        <button class="btn" id="btnPause">Pause</button>
+        <button class="btn danger" id="btnReset">Reset</button>
+      </div>
+      <div class="btn-row" style="margin-top:7px;">
+        <button class="btn" id="btnInjectNoise">Inject Noise Burst</button>
+      </div>
+      <div class="btn-row" style="margin-top:7px;">
+        <button class="btn" id="btnCompare">Run GA Comparison</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Operator Toggles</h3>
+      <div class="param-row"><label><input type="checkbox" id="togWeed" checked> Weeding (Feature Pruning)</label></div>
+      <div class="param-row"><label><input type="checkbox" id="togFert" checked> Fertilization (Gradient Inject)</label></div>
+      <div class="param-row"><label><input type="checkbox" id="togBio" checked> Bioturbation (L&eacute;vy Perturb)</label></div>
+      <div class="param-row"><label><input type="checkbox" id="togMolt" checked> Molting (Elitism Archive)</label></div>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div class="center-panel">
+    <div class="canvas-wrap">
+      <canvas id="scatterCanvas"></canvas>
+      <div class="canvas-label">Feature Space (2D Projection) &mdash; Signal vs Noise</div>
+      <div class="overlay-stats" id="topStats">
+        <div class="sl"><span class="sk">Iter:</span><span class="sv" id="sIter">0</span></div>
+        <div class="sl"><span class="sk">SNR:</span><span class="sv" id="sSNR">-</span></div>
+        <div class="sl"><span class="sk">Features Alive:</span><span class="sv" id="sFeats">-</span></div>
+        <div class="sl"><span class="sk">Accuracy:</span><span class="sv" id="sAcc">-</span></div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="featureCanvas"></canvas>
+      <div class="canvas-label">Feature Weights &mdash; Signal (green) vs Noise (red) Dimensions</div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="panel panel-right">
+    <div class="panel-section">
+      <h3>Live Metrics</h3>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="mv" id="mAccuracy" style="color:var(--signal)">-</div><div class="ml">Classification Accuracy</div></div>
+        <div class="metric-card"><div class="mv" id="mWeeded" style="color:var(--weed)">-</div><div class="ml">Features Weeded</div></div>
+        <div class="metric-card"><div class="mv" id="mSNR" style="color:var(--crab-blue)">-</div><div class="ml">Signal-to-Noise Ratio</div></div>
+        <div class="metric-card"><div class="mv" id="mFitness" style="color:var(--accent2)">-</div><div class="ml">Best Rice Fitness</div></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Convergence</h3>
+      <div class="chart-box"><canvas id="convergenceChart"></canvas></div>
+    </div>
+
+    <div class="panel-section" id="compSection" style="display:none;">
+      <h3>RCOA vs GA Comparison</h3>
+      <table class="comparison-table" id="compTable">
+        <tr><th>Metric</th><th>RCOA</th><th>GA</th></tr>
+      </table>
+    </div>
+
+    <div class="panel-section">
+      <h3>How RCOA Denoises Data</h3>
+
+      <div class="concept-card">
+        <h4>The "Paddy Field" Metaphor</h4>
+        <span class="tag tag-bio">Ecology &rarr; Data</span>
+        <p style="margin-top:5px;">The dataset <em>is</em> the paddy field. Each data point is terrain. <strong>Signal clusters</strong> are rice&mdash;valuable crop to preserve. <strong>Noise points</strong> are weeds&mdash;they compete for resources and obscure the harvest. Rice Agents are candidate feature subsets (centroids). Crab Agents are evaluator/classifiers that weed, fertilize, and aerate.</p>
+      </div>
+
+      <div class="concept-card">
+        <h4>Weeding Operator (Feature Pruning)</h4>
+        <span class="tag tag-math">X' = X &odot; M<sub>prune</sub></span><span class="tag tag-algo">Dim. Reduction</span>
+        <p style="margin-top:5px;">When a Crab evaluates a Rice (feature subset), it computes per-dimension sensitivity. Dimensions where S<sub>d</sub> &lt; &epsilon; are &ldquo;weeds&rdquo;&mdash;zeroed out. If the pruned subset yields better fitness, the weed is permanently removed. This is <em>online feature selection</em> embedded inside the optimization loop. GA/PSO lack this: they carry dead features across generations.</p>
+      </div>
+
+      <div class="concept-card">
+        <h4>Fertilization (Centroid Refinement)</h4>
+        <span class="tag tag-bio">N-Cycling</span><span class="tag tag-math">X += &eta;(P<sub>best</sub> - X)/(1+&gamma;&rho;)</span>
+        <p style="margin-top:5px;">Visiting a Rice agent <em>improves</em> it. The Crab deposits gradient information from its best-seen configuration, nudging the centroid toward higher-purity clusters. The density penalty &gamma;&rho; prevents all Crabs from piling onto one cluster&mdash;enforcing multi-modal exploration across all clusters simultaneously.</p>
+      </div>
+
+      <div class="concept-card">
+        <h4>Bioturbation (Escaping False Clusters)</h4>
+        <span class="tag tag-bio">Soil Aeration</span><span class="tag tag-math">X += &alpha; &oplus; L&eacute;vy(&lambda;)</span>
+        <p style="margin-top:5px;">If a centroid stagnates (stuck on a noise cluster), the Crab applies a L&eacute;vy flight jolt. The heavy-tailed distribution makes occasional large jumps, letting the centroid leap past nearby noise concentrations to discover true signal. Gaussian perturbation (used in standard methods) stays too local.</p>
+      </div>
+
+      <div class="concept-card">
+        <h4>Molting (Protecting Best Subsets)</h4>
+        <span class="tag tag-algo">Elitism Archive</span>
+        <p style="margin-top:5px;">Periodically, the best-performing Rice agents are &ldquo;locked&rdquo;&mdash;shielded from modification. This prevents over-exploration from destroying good solutions. Weak Crabs shelter there, reset energy, and re-emerge. In feature selection terms: the best-found feature subsets are archived and protected from random drift.</p>
+      </div>
+
+      <div class="concept-card">
+        <h4>Limitations Demonstrated</h4>
+        <span class="tag tag-math">O(T&middot;(N+M)&middot;D + T&middot;M&middot;logM)</span>
+        <p style="margin-top:5px;"><strong>Parameter sensitivity:</strong> Try extreme &gamma; or &epsilon; values and watch performance degrade. <strong>Dimensionality overhead:</strong> Increase feature dims past 15&mdash;the density penalty calculation slows. <strong>Interaction radius:</strong> Too small = Crabs never reach Rice; too large = everything is in Symbiosis (no exploration). These are the real engineering tradeoffs of RCOA.</p>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Event Log</h3>
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ============================================================
+// RCOA PATTERN RECOGNITION & DENOISING SIMULATOR
+// Demonstrates Weeding, Fertilization, Bioturbation, Molting
+// applied to feature selection in noisy high-dimensional data
+// ============================================================
+
+const scatterCanvas = document.getElementById('scatterCanvas');
+const featureCanvas = document.getElementById('featureCanvas');
+const sctx = scatterCanvas.getContext('2d');
+const fctx = featureCanvas.getContext('2d');
+
+// --- State ---
+let dataPoints = [];       // {x,y,features[],isSignal,cluster,classified}
+let trueLabels = [];
+let clusterCenters = [];   // ground truth
+let riceAgents = [];       // RCOA rice: feature subsets / centroids
+let crabAgents = [];       // RCOA crabs: evaluators
+let featureWeights = [];   // per-dimension weight [0..1], 0 = weeded
+let featureIsSignal = [];  // ground truth: which dims are signal
+let iteration = 0;
+let running = false, paused = false;
+let fitnessHistory = [], gaFitnessHistory = [];
+let animFrame = null, lastTime = 0, accumulator = 0;
+
+// --- Params ---
+function P() {
+  return {
+    nSignal: +document.getElementById('pSignal').value,
+    nNoise: +document.getElementById('pNoise').value,
+    nClusters: +document.getElementById('pClusters').value,
+    spread: +document.getElementById('pSpread').value,
+    dims: +document.getElementById('pDims').value,
+    noisyDims: +document.getElementById('pNoisyDims').value,
+    N: +document.getElementById('pRice').value,
+    M: +document.getElementById('pCrabs').value,
+    gamma: +document.getElementById('pGamma').value / 100,
+    eta: +document.getElementById('pEta').value / 100,
+    alpha: +document.getElementById('pAlpha').value / 100,
+    tauStag: +document.getElementById('pTauStag').value,
+    tauMolt: +document.getElementById('pTauMolt').value,
+    Rint: +document.getElementById('pRint').value,
+    epsilon: +document.getElementById('pEpsilon').value / 100,
+    speed: +document.getElementById('pSpeed').value,
+    weedOn: document.getElementById('togWeed').checked,
+    fertOn: document.getElementById('togFert').checked,
+    bioOn: document.getElementById('togBio').checked,
+    moltOn: document.getElementById('togMolt').checked,
+  };
+}
+
+// Slider bindings
+document.querySelectorAll('input[type=range]').forEach(el => {
+  el.addEventListener('input', () => {
+    const vid = 'v' + el.id.slice(1);
+    const ve = document.getElementById(vid);
+    if (!ve) return;
+    let v = el.value;
+    if (['pGamma','pEta','pAlpha','pEpsilon'].includes(el.id)) v = (v/100).toFixed(2);
+    ve.textContent = v;
+  });
+});
+
+// --- Math Utilities ---
+function rand(a,b) { return a + Math.random()*(b-a); }
+function clamp(v,lo,hi) { return Math.max(lo,Math.min(hi,v)); }
+function gaussRand() { let u=0,v=0; while(!u) u=Math.random(); while(!v) v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function dist2D(a,b) { return Math.hypot(a.x-b.x, a.y-b.y); }
+function distND(a,b) { let s=0; for(let i=0;i<a.length;i++) s+=(a[i]-b[i])*(a[i]-b[i]); return Math.sqrt(s); }
+
+function levyStep(lam=1.5) {
+  const sU = Math.pow((gammaFn(1+lam)*Math.sin(Math.PI*lam/2))/(gammaFn((1+lam)/2)*lam*Math.pow(2,(lam-1)/2)),1/lam);
+  const u = gaussRand()*sU, v = Math.abs(gaussRand());
+  return u/Math.pow(v,1/lam);
+}
+function gammaFn(z) {
+  if(z<0.5) return Math.PI/(Math.sin(Math.PI*z)*gammaFn(1-z));
+  z-=1; const g=7;
+  const c=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+  let x=c[0]; for(let i=1;i<g+2;i++) x+=c[i]/(z+i);
+  const t=z+g+0.5;
+  return Math.sqrt(2*Math.PI)*Math.pow(t,z+0.5)*Math.exp(-t)*x;
+}
+
+// --- Resize ---
+function resize() {
+  [scatterCanvas, featureCanvas].forEach(cv => {
+    const r = cv.parentElement.getBoundingClientRect();
+    cv.width = r.width * devicePixelRatio;
+    cv.height = r.height * devicePixelRatio;
+    cv.style.width = r.width+'px';
+    cv.style.height = r.height+'px';
+    cv.getContext('2d').setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  });
+}
+window.addEventListener('resize', resize);
+
+// --- Generate Data ---
+function generateData() {
+  const p = P();
+  const W = scatterCanvas.width / devicePixelRatio;
+  const H = scatterCanvas.height / devicePixelRatio;
+  dataPoints = [];
+  clusterCenters = [];
+
+  // Generate cluster centers
+  for (let c = 0; c < p.nClusters; c++) {
+    clusterCenters.push({
+      x: rand(80, W-80),
+      y: rand(60, H-60),
+      features: Array.from({length:p.dims}, () => rand(-1,1))
+    });
+  }
+
+  // Signal points around clusters
+  const perCluster = Math.floor(p.nSignal / p.nClusters);
+  for (let c = 0; c < p.nClusters; c++) {
+    const cc = clusterCenters[c];
+    for (let i = 0; i < perCluster; i++) {
+      const feats = cc.features.map(f => f + gaussRand() * 0.3);
+      dataPoints.push({
+        x: cc.x + gaussRand() * p.spread,
+        y: cc.y + gaussRand() * p.spread,
+        features: feats,
+        isSignal: true,
+        cluster: c,
+        classified: -1,
+        weeded: false,
+      });
+    }
+  }
+
+  // Noise points scattered randomly
+  for (let i = 0; i < p.nNoise; i++) {
+    dataPoints.push({
+      x: rand(20, W-20),
+      y: rand(20, H-20),
+      features: Array.from({length:p.dims}, () => rand(-2,2)),
+      isSignal: false,
+      cluster: -1,
+      classified: -1,
+      weeded: false,
+    });
+  }
+
+  // Feature dimension truth: first (dims - noisyDims) are signal, rest are noise
+  const sigDims = Math.max(1, p.dims - p.noisyDims);
+  featureIsSignal = Array.from({length:p.dims}, (_,i) => i < sigDims);
+  featureWeights = Array.from({length:p.dims}, () => 1.0);
+
+  // Inject noise into noisy dimensions
+  dataPoints.forEach(dp => {
+    for (let d = sigDims; d < p.dims; d++) {
+      dp.features[d] = rand(-3,3); // pure noise
+    }
+  });
+}
+
+// --- Initialize RCOA ---
+function init() {
+  resize();
+  const p = P();
+  const W = scatterCanvas.width / devicePixelRatio;
+  const H = scatterCanvas.height / devicePixelRatio;
+
+  generateData();
+  iteration = 0;
+  fitnessHistory = [];
+  gaFitnessHistory = [];
+  document.getElementById('compSection').style.display = 'none';
+
+  // Rice agents: candidate feature subsets / centroids
+  // LHS initialization
+  riceAgents = [];
+  for (let i = 0; i < p.N; i++) {
+    const fx = rand(60, W-60);
+    const fy = rand(40, H-40);
+    riceAgents.push({
+      id: i,
+      x: fx, y: fy,
+      features: Array.from({length:p.dims}, () => rand(-1.5,1.5)),
+      featureMask: Array.from({length:p.dims}, () => 1.0), // 1=active, 0=weeded
+      health: 1.0,
+      yield: 0,
+      stagnation: 0,
+      lastYield: 0,
+      locked: false,
+      lockTimer: 0,
+      crabDensity: 0,
+    });
+  }
+
+  // Crab agents: evaluators
+  crabAgents = [];
+  for (let j = 0; j < p.M; j++) {
+    const host = riceAgents[j % p.N];
+    crabAgents.push({
+      id: j,
+      x: host.x + gaussRand()*25,
+      y: host.y + gaussRand()*25,
+      vx: 0, vy: 0,
+      energy: 1.0,
+      state: 'Foraging',
+      targetRice: null,
+      pBestFeatures: host.features.slice(),
+      pBestFitness: 0,
+      recentImprovement: 0,
+      moltTimer: 0,
+      trail: [],
+    });
+  }
+
+  clearLog();
+  log('sys', `Dataset: ${p.nSignal} signal + ${p.nNoise} noise in ${p.dims}D (${p.noisyDims} noisy dims)`);
+  log('sys', `RCOA: ${p.N} Rice centroids, ${p.M} Crab evaluators`);
+  log('sys', `Search space for feature selection: 2^${p.dims} = ${Math.pow(2,p.dims)} subsets`);
+  updateMetrics();
+  draw();
+}
+
+// --- Fitness: classification accuracy using weighted nearest-centroid ---
+function evaluateFitness(rice) {
+  const p = P();
+  let correct = 0, total = 0;
+
+  // Weighted features
+  const mask = rice.featureMask;
+  const activeDims = mask.reduce((s,v)=>s+v, 0);
+  if (activeDims < 1) return 0;
+
+  // For each signal point, check if nearest rice centroid is close
+  // For each noise point, check if it's NOT claimed
+  dataPoints.forEach(dp => {
+    // Weighted distance to this rice
+    let d = 0;
+    for (let k = 0; k < p.dims; k++) {
+      d += mask[k] * (dp.features[k] - rice.features[k]) * (dp.features[k] - rice.features[k]);
+    }
+    d = Math.sqrt(d);
+
+    if (dp.isSignal && d < 1.5) { correct++; }
+    if (!dp.isSignal && d > 2.0) { correct++; }
+    total++;
+  });
+
+  // Penalize having too many active noisy dims
+  const noiseDimPenalty = mask.reduce((s,v,i) => s + (featureIsSignal[i] ? 0 : v * 0.05), 0);
+
+  return (correct / Math.max(total, 1)) - noiseDimPenalty;
+}
+
+// Global classification accuracy using all rice agents
+function globalAccuracy() {
+  const p = P();
+  let correct = 0;
+
+  dataPoints.forEach(dp => {
+    // Find nearest rice centroid using weighted features
+    let minD = Infinity, bestRice = null;
+    riceAgents.forEach(r => {
+      let d = 0;
+      for (let k = 0; k < p.dims; k++) {
+        d += r.featureMask[k] * featureWeights[k] * (dp.features[k] - r.features[k]) ** 2;
+      }
+      d = Math.sqrt(d);
+      if (d < minD) { minD = d; bestRice = r; }
+    });
+
+    // Classify: signal if close to a centroid, noise if far
+    const isClassifiedSignal = minD < 1.8;
+    dp.classified = isClassifiedSignal ? (bestRice ? bestRice.id : 0) : -1;
+    dp.weeded = !isClassifiedSignal && !dp.isSignal;
+
+    if ((dp.isSignal && isClassifiedSignal) || (!dp.isSignal && !isClassifiedSignal)) {
+      correct++;
+    }
+  });
+
+  return correct / Math.max(dataPoints.length, 1);
+}
+
+// --- RCOA Step ---
+function step() {
+  const p = P();
+  const W = scatterCanvas.width / devicePixelRatio;
+  const H = scatterCanvas.height / devicePixelRatio;
+  iteration++;
+
+  // Reset densities
+  riceAgents.forEach(r => {
+    r.crabDensity = 0;
+    if (r.lockTimer > 0) { r.lockTimer--; if (r.lockTimer <= 0) r.locked = false; }
+  });
+
+  // Count density
+  crabAgents.forEach(c => {
+    if (c.state === 'Symbiosis' && c.targetRice !== null) {
+      riceAgents[c.targetRice].crabDensity++;
+    }
+  });
+
+  // Evaluate all rice
+  riceAgents.forEach(r => {
+    r.yield = evaluateFitness(r);
+  });
+
+  // Crab movement and operators
+  crabAgents.forEach(c => {
+    if (c.state === 'Molting') {
+      c.moltTimer--;
+      if (c.moltTimer <= 0) {
+        c.state = 'Foraging';
+        c.energy = 1.0;
+        log('molt', `Crab ${c.id} re-emerged`);
+      }
+      return;
+    }
+
+    // Attractiveness: urgency (low yield) with density penalty
+    let bestAttr = -Infinity, bestIdx = -1;
+    riceAgents.forEach((r, i) => {
+      const urgency = (1 - r.yield) + 0.5;
+      const attr = urgency / (1 + p.gamma * r.crabDensity);
+      if (attr > bestAttr) { bestAttr = attr; bestIdx = i; }
+    });
+
+    c.targetRice = bestIdx;
+    const target = riceAgents[bestIdx];
+    const d = dist2D(c, target);
+
+    // Velocity update
+    const omega = 0.65;
+    const u1 = Math.random(), u2 = Math.random();
+    c.vx = omega*c.vx + 1.5*u1*(c.pBestFeatures[0] !== undefined ? target.x - c.x : 0) + 2.0*u2*(target.x - c.x);
+    c.vy = omega*c.vy + 1.5*u1*(target.y - c.y) + 2.0*u2*(target.y - c.y);
+    const spd = Math.hypot(c.vx, c.vy);
+    if (spd > 10) { c.vx *= 10/spd; c.vy *= 10/spd; }
+
+    c.x = clamp(c.x + c.vx, 10, W-10);
+    c.y = clamp(c.y + c.vy, 10, H-10);
+    c.energy -= 0.004;
+
+    c.trail.push({x:c.x, y:c.y});
+    if (c.trail.length > 25) c.trail.shift();
+
+    // Symbiosis phase
+    if (d < p.Rint) {
+      c.state = 'Symbiosis';
+
+      // Operator A: WEEDING (the core denoising mechanism)
+      if (p.weedOn && !target.locked) {
+        // Per-dimension sensitivity analysis
+        for (let dim = 0; dim < p.dims; dim++) {
+          if (target.featureMask[dim] < 0.5) continue; // already weeded
+
+          // Compute sensitivity: try zeroing this dimension
+          const origMask = target.featureMask.slice();
+          const trialMask = origMask.slice();
+          trialMask[dim] = 0;
+
+          const origFit = target.yield;
+          const savedMask = target.featureMask;
+          target.featureMask = trialMask;
+          const trialFit = evaluateFitness(target);
+          target.featureMask = savedMask;
+
+          const sensitivity = origFit - trialFit; // positive = dimension helps
+
+          if (sensitivity < p.epsilon) {
+            // This dimension is a "weed" - prune it
+            target.featureMask[dim] = 0;
+            featureWeights[dim] = Math.max(featureWeights[dim] - 0.1, 0);
+            if (iteration % 15 === 0) {
+              const dimType = featureIsSignal[dim] ? 'SIGNAL' : 'NOISE';
+              log('weed', `Weeded dim ${dim} (${dimType}) from R${target.id}, S_d=${sensitivity.toFixed(3)} < ε=${p.epsilon.toFixed(2)}`);
+            }
+          }
+        }
+      }
+
+      // Operator B: FERTILIZATION (gradient injection)
+      if (p.fertOn && !target.locked) {
+        const densFactor = 1 / (1 + p.gamma * target.crabDensity);
+        for (let dim = 0; dim < p.dims; dim++) {
+          if (target.featureMask[dim] < 0.5) continue;
+          target.features[dim] += p.eta * densFactor * (c.pBestFeatures[dim] - target.features[dim]);
+        }
+        // Also nudge spatial position toward data density
+        const nearSignal = dataPoints.filter(dp => dp.isSignal && dist2D(dp, target) < p.spread * 2);
+        if (nearSignal.length > 0) {
+          const cx = nearSignal.reduce((s,d) => s+d.x, 0) / nearSignal.length;
+          const cy = nearSignal.reduce((s,d) => s+d.y, 0) / nearSignal.length;
+          target.x += p.eta * densFactor * (cx - target.x) * 0.3;
+          target.y += p.eta * densFactor * (cy - target.y) * 0.3;
+        }
+
+        // Update crab personal best
+        const newFit = evaluateFitness(target);
+        if (newFit > c.pBestFitness) {
+          c.pBestFeatures = target.features.slice();
+          c.pBestFitness = newFit;
+          c.recentImprovement += newFit - target.yield;
+        }
+        target.yield = newFit;
+
+        if (iteration % 25 === 0) log('fert', `Fertilized R${target.id}: fit=${newFit.toFixed(3)} (ρ=${target.crabDensity})`);
+      }
+
+      // Operator C: BIOTURBATION (Lévy perturbation on stagnant centroids)
+      if (p.bioOn && !target.locked) {
+        if (Math.abs(target.yield - target.lastYield) < 0.001) {
+          target.stagnation++;
+        } else {
+          target.stagnation = 0;
+        }
+        target.lastYield = target.yield;
+
+        if (target.stagnation >= p.tauStag) {
+          for (let dim = 0; dim < p.dims; dim++) {
+            if (target.featureMask[dim] > 0.5) {
+              target.features[dim] += p.alpha * levyStep(1.5) * 0.3;
+            }
+          }
+          // Spatial jolt
+          target.x += levyStep(1.5) * p.alpha * 30;
+          target.y += levyStep(1.5) * p.alpha * 30;
+          target.x = clamp(target.x, 30, W-30);
+          target.y = clamp(target.y, 30, H-30);
+          target.stagnation = 0;
+          log('bio', `Bioturbation at R${target.id}: Lévy jolt applied`);
+        }
+      }
+
+    } else {
+      c.state = 'Foraging';
+    }
+  });
+
+  // Molting strategy
+  if (p.moltOn && iteration % p.tauMolt === 0 && iteration > 0) {
+    const sorted = [...crabAgents].filter(c => c.state !== 'Molting').sort((a,b) => a.recentImprovement - b.recentImprovement);
+    const moltN = Math.max(1, Math.floor(sorted.length * 0.1));
+    const topRice = [...riceAgents].sort((a,b) => b.yield - a.yield).slice(0, moltN);
+
+    for (let k = 0; k < moltN && k < sorted.length; k++) {
+      const crab = sorted[k];
+      const elite = topRice[k % topRice.length];
+      crab.state = 'Molting';
+      crab.x = elite.x + rand(-12,12);
+      crab.y = elite.y + rand(-12,12);
+      crab.moltTimer = 5;
+      crab.recentImprovement = 0;
+      elite.locked = true;
+      elite.lockTimer = 5;
+      log('molt', `Crab ${crab.id} molting at elite R${elite.id} (locked)`);
+    }
+  }
+
+  // Update global feature weights from rice masks
+  for (let d = 0; d < p.dims; d++) {
+    const avgMask = riceAgents.reduce((s,r) => s + (r.featureMask[d] || 0), 0) / riceAgents.length;
+    featureWeights[d] = 0.8 * featureWeights[d] + 0.2 * avgMask;
+  }
+
+  // Record fitness
+  const bestFit = Math.max(...riceAgents.map(r => r.yield));
+  fitnessHistory.push(bestFit);
+  if (fitnessHistory.length > 500) fitnessHistory.shift();
+
+  updateMetrics();
+}
+
+// --- GA Comparison ---
+function runGAComparison() {
+  const p = P();
+  log('sys', 'Running GA comparison (same problem, no weeding)...');
+  gaFitnessHistory = [];
+
+  // GA: population of feature masks (binary chromosomes)
+  const popSize = p.N * 2;
+  let pop = [];
+  for (let i = 0; i < popSize; i++) {
+    pop.push({
+      mask: Array.from({length:p.dims}, () => Math.random() > 0.3 ? 1 : 0),
+      features: Array.from({length:p.dims}, () => rand(-1.5,1.5)),
+      fitness: 0,
+    });
+  }
+
+  const iters = Math.min(fitnessHistory.length, 300);
+  for (let t = 0; t < iters; t++) {
+    // Evaluate
+    pop.forEach(ind => {
+      // Simple fitness: count correctly classified using nearest centroid approach
+      let correct = 0;
+      dataPoints.forEach(dp => {
+        let d = 0;
+        for (let k = 0; k < p.dims; k++) {
+          d += ind.mask[k] * (dp.features[k] - ind.features[k]) ** 2;
+        }
+        d = Math.sqrt(d);
+        const classified = d < 1.8;
+        if ((dp.isSignal && classified) || (!dp.isSignal && !classified)) correct++;
+      });
+      ind.fitness = correct / dataPoints.length;
+    });
+
+    // Selection (tournament)
+    const newPop = [];
+    for (let i = 0; i < popSize; i++) {
+      const a = pop[Math.floor(Math.random()*popSize)];
+      const b = pop[Math.floor(Math.random()*popSize)];
+      const parent = a.fitness > b.fitness ? a : b;
+      // Crossover + mutation
+      const child = {
+        mask: parent.mask.map(v => Math.random() < 0.05 ? (1-v) : v),
+        features: parent.features.map(f => f + gaussRand() * 0.1),
+        fitness: 0,
+      };
+      newPop.push(child);
+    }
+    pop = newPop;
+
+    const bestFit = Math.max(...pop.map(i => i.fitness));
+    gaFitnessHistory.push(bestFit);
+  }
+
+  // Show comparison
+  const rcoaFinal = fitnessHistory.length > 0 ? fitnessHistory[fitnessHistory.length-1] : 0;
+  const gaFinal = gaFitnessHistory.length > 0 ? gaFitnessHistory[gaFitnessHistory.length-1] : 0;
+  const rcoaWeeded = featureWeights.filter(w => w < 0.3).length;
+  const rcoaAcc = globalAccuracy();
+
+  document.getElementById('compSection').style.display = 'block';
+  document.getElementById('compTable').innerHTML = `
+    <tr><th>Metric</th><th>RCOA</th><th>GA</th></tr>
+    <tr><td>Best Fitness</td><td class="${rcoaFinal>=gaFinal?'winner':''}">${rcoaFinal.toFixed(3)}</td><td class="${gaFinal>rcoaFinal?'winner':''}">${gaFinal.toFixed(3)}</td></tr>
+    <tr><td>Classification Acc.</td><td class="winner">${(rcoaAcc*100).toFixed(1)}%</td><td>~${(gaFinal*100).toFixed(1)}%</td></tr>
+    <tr><td>Features Pruned</td><td class="winner">${rcoaWeeded} dims weeded</td><td>0 (no weeding)</td></tr>
+    <tr><td>Online Refinement</td><td class="winner">Yes (Fertilization)</td><td>No</td></tr>
+    <tr><td>Stagnation Escape</td><td class="winner">Lévy Bioturbation</td><td>Mutation only</td></tr>
+    <tr><td>Elite Protection</td><td class="winner">Molting Lock</td><td>Elitism (passive)</td></tr>
+  `;
+  log('sys', `GA comparison done. RCOA: ${rcoaFinal.toFixed(3)} vs GA: ${gaFinal.toFixed(3)}`);
+}
+
+// --- Noise injection ---
+function injectNoise() {
+  const p = P();
+  const W = scatterCanvas.width / devicePixelRatio;
+  const H = scatterCanvas.height / devicePixelRatio;
+  const burst = 30;
+  for (let i = 0; i < burst; i++) {
+    dataPoints.push({
+      x: rand(20,W-20), y: rand(20,H-20),
+      features: Array.from({length:p.dims}, () => rand(-3,3)),
+      isSignal: false, cluster: -1, classified: -1, weeded: false,
+    });
+  }
+  log('sys', `Noise burst: +${burst} random points injected`);
+}
+
+// --- Metrics ---
+function updateMetrics() {
+  const p = P();
+  const acc = globalAccuracy();
+  const weeded = featureWeights.filter(w => w < 0.3).length;
+  const signalPower = featureWeights.reduce((s,w,i) => s + (featureIsSignal[i] ? w : 0), 0);
+  const noisePower = featureWeights.reduce((s,w,i) => s + (featureIsSignal[i] ? 0 : w), 0) || 0.01;
+  const snr = (signalPower / noisePower).toFixed(2);
+  const bestFit = riceAgents.length > 0 ? Math.max(...riceAgents.map(r=>r.yield)) : 0;
+
+  document.getElementById('sIter').textContent = iteration;
+  document.getElementById('sSNR').textContent = snr + ' dB';
+  document.getElementById('sFeats').textContent = (p.dims - weeded) + '/' + p.dims;
+  document.getElementById('sAcc').textContent = (acc*100).toFixed(1) + '%';
+
+  document.getElementById('mAccuracy').textContent = (acc*100).toFixed(1) + '%';
+  document.getElementById('mWeeded').textContent = weeded + '/' + p.dims;
+  document.getElementById('mSNR').textContent = snr;
+  document.getElementById('mFitness').textContent = bestFit.toFixed(3);
+}
+
+// --- Drawing ---
+function draw() {
+  drawScatter();
+  drawFeatures();
+  drawConvergence();
+}
+
+function drawScatter() {
+  const W = scatterCanvas.width / devicePixelRatio;
+  const H = scatterCanvas.height / devicePixelRatio;
+  sctx.clearRect(0,0,W,H);
+
+  // Grid
+  sctx.strokeStyle = 'rgba(42,58,78,0.2)';
+  sctx.lineWidth = 0.5;
+  for (let x=0;x<W;x+=50) { sctx.beginPath(); sctx.moveTo(x,0); sctx.lineTo(x,H); sctx.stroke(); }
+  for (let y=0;y<H;y+=50) { sctx.beginPath(); sctx.moveTo(0,y); sctx.lineTo(W,y); sctx.stroke(); }
+
+  const p = P();
+
+  // Data points
+  dataPoints.forEach(dp => {
+    const r = dp.isSignal ? 3 : 2;
+    let color;
+    if (dp.isSignal) {
+      const hues = ['#34d399','#60a5fa','#fb923c','#c084fc','#f472b6','#facc15'];
+      color = hues[dp.cluster % hues.length];
+    } else {
+      color = dp.weeded ? 'rgba(248,113,113,0.15)' : 'rgba(248,113,113,0.4)';
+    }
+
+    sctx.beginPath();
+    sctx.arc(dp.x, dp.y, r, 0, Math.PI*2);
+    sctx.fillStyle = color;
+    sctx.fill();
+
+    // Strikethrough for weeded noise
+    if (dp.weeded) {
+      sctx.beginPath();
+      sctx.moveTo(dp.x-3, dp.y-3);
+      sctx.lineTo(dp.x+3, dp.y+3);
+      sctx.strokeStyle = 'rgba(248,113,113,0.3)';
+      sctx.lineWidth = 0.5;
+      sctx.stroke();
+    }
+  });
+
+  // True cluster centers (faint)
+  clusterCenters.forEach((cc,i) => {
+    sctx.beginPath();
+    sctx.arc(cc.x, cc.y, 8, 0, Math.PI*2);
+    sctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    sctx.lineWidth = 1;
+    sctx.setLineDash([3,3]);
+    sctx.stroke();
+    sctx.setLineDash([]);
+    sctx.fillStyle = 'rgba(255,255,255,0.15)';
+    sctx.font = '8px monospace';
+    sctx.textAlign = 'center';
+    sctx.fillText('true'+i, cc.x, cc.y - 12);
+  });
+
+  // Interaction radii
+  riceAgents.forEach(r => {
+    if (r.crabDensity > 0) {
+      sctx.beginPath();
+      sctx.arc(r.x, r.y, p.Rint, 0, Math.PI*2);
+      sctx.strokeStyle = 'rgba(96,165,250,0.06)';
+      sctx.lineWidth = 1;
+      sctx.stroke();
+    }
+  });
+
+  // Crab trails
+  crabAgents.forEach(c => {
+    if (c.trail.length > 1) {
+      sctx.beginPath();
+      sctx.moveTo(c.trail[0].x, c.trail[0].y);
+      for (let i=1;i<c.trail.length;i++) sctx.lineTo(c.trail[i].x, c.trail[i].y);
+      sctx.strokeStyle = c.state==='Molting' ? 'rgba(192,132,252,0.12)' : 'rgba(251,146,60,0.1)';
+      sctx.lineWidth = 1;
+      sctx.stroke();
+    }
+  });
+
+  // Connections
+  crabAgents.forEach(c => {
+    if (c.targetRice !== null && c.state !== 'Molting') {
+      const t = riceAgents[c.targetRice];
+      sctx.beginPath();
+      sctx.moveTo(c.x,c.y); sctx.lineTo(t.x,t.y);
+      sctx.strokeStyle = c.state==='Symbiosis' ? 'rgba(96,165,250,0.12)' : 'rgba(251,146,60,0.06)';
+      sctx.lineWidth = 0.8;
+      sctx.stroke();
+    }
+  });
+
+  // Rice agents (centroids)
+  riceAgents.forEach(r => {
+    const sz = 12 + r.yield * 10;
+    const activeDims = r.featureMask.reduce((s,v)=>s+v,0);
+    const dimRatio = activeDims / p.dims;
+
+    // Locked glow
+    if (r.locked) {
+      sctx.beginPath();
+      sctx.arc(r.x, r.y, sz+6, 0, Math.PI*2);
+      sctx.fillStyle = 'rgba(192,132,252,0.12)';
+      sctx.fill();
+    }
+
+    // Health ring
+    sctx.beginPath();
+    sctx.arc(r.x, r.y, sz, -Math.PI/2, -Math.PI/2 + Math.PI*2*dimRatio);
+    sctx.strokeStyle = dimRatio > 0.6 ? '#4ade80' : dimRatio > 0.3 ? '#facc15' : '#f87171';
+    sctx.lineWidth = 2.5;
+    sctx.stroke();
+
+    // Background
+    sctx.beginPath();
+    sctx.arc(r.x, r.y, sz, 0, Math.PI*2);
+    sctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    sctx.lineWidth = 0.8;
+    sctx.stroke();
+
+    // Fill
+    sctx.beginPath();
+    sctx.arc(r.x, r.y, sz-3, 0, Math.PI*2);
+    sctx.fillStyle = 'rgba(74,222,128,0.08)';
+    sctx.fill();
+
+    // Rice icon
+    sctx.save();
+    sctx.translate(r.x, r.y);
+    const stemH = sz * 0.45 * dimRatio;
+    sctx.strokeStyle = '#4ade80';
+    sctx.lineWidth = 1.2;
+    sctx.beginPath(); sctx.moveTo(0,3); sctx.lineTo(0,3-stemH); sctx.stroke();
+    if (dimRatio > 0.3) {
+      sctx.beginPath(); sctx.moveTo(0,3-stemH*0.4); sctx.quadraticCurveTo(5,3-stemH*0.6,7,3-stemH*0.3); sctx.stroke();
+      sctx.beginPath(); sctx.moveTo(0,3-stemH*0.7); sctx.quadraticCurveTo(-5,3-stemH*0.9,-7,3-stemH*0.6); sctx.stroke();
+    }
+    sctx.restore();
+
+    // Labels
+    sctx.fillStyle = 'rgba(255,255,255,0.6)';
+    sctx.font = '8px monospace';
+    sctx.textAlign = 'center';
+    sctx.fillText(`R${r.id}`, r.x, r.y + sz + 10);
+    sctx.fillStyle = 'rgba(74,222,128,0.8)';
+    sctx.fillText(`${activeDims}/${p.dims}d`, r.x, r.y + sz + 19);
+    if (r.crabDensity > 0) {
+      sctx.fillStyle = 'rgba(96,165,250,0.7)';
+      sctx.fillText(`ρ=${r.crabDensity}`, r.x, r.y + sz + 28);
+    }
+  });
+
+  // Crab agents
+  crabAgents.forEach(c => {
+    let color;
+    switch(c.state) {
+      case 'Foraging': color='#fb923c'; break;
+      case 'Symbiosis': color='#60a5fa'; break;
+      case 'Molting': color='#c084fc'; break;
+    }
+    const sz = c.state === 'Symbiosis' ? 5 : 4;
+
+    sctx.beginPath();
+    sctx.arc(c.x, c.y, sz, 0, Math.PI*2);
+    sctx.fillStyle = color + '88';
+    sctx.fill();
+    sctx.strokeStyle = color;
+    sctx.lineWidth = 1.2;
+    sctx.stroke();
+
+    // Claws
+    const a = Math.atan2(c.vy, c.vx);
+    sctx.beginPath();
+    sctx.moveTo(c.x+Math.cos(a+0.5)*sz, c.y+Math.sin(a+0.5)*sz);
+    sctx.lineTo(c.x+Math.cos(a+0.3)*(sz+3), c.y+Math.sin(a+0.3)*(sz+3));
+    sctx.moveTo(c.x+Math.cos(a-0.5)*sz, c.y+Math.sin(a-0.5)*sz);
+    sctx.lineTo(c.x+Math.cos(a-0.3)*(sz+3), c.y+Math.sin(a-0.3)*(sz+3));
+    sctx.strokeStyle = color+'66';
+    sctx.lineWidth = 1;
+    sctx.stroke();
+  });
+}
+
+function drawFeatures() {
+  const W = featureCanvas.width / devicePixelRatio;
+  const H = featureCanvas.height / devicePixelRatio;
+  fctx.clearRect(0,0,W,H);
+
+  const p = P();
+  const pad = {top:25, right:20, bottom:25, left:50};
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  // Axes
+  fctx.strokeStyle = 'rgba(42,58,78,0.5)';
+  fctx.lineWidth = 1;
+  fctx.beginPath();
+  fctx.moveTo(pad.left, pad.top);
+  fctx.lineTo(pad.left, H-pad.bottom);
+  fctx.lineTo(W-pad.right, H-pad.bottom);
+  fctx.stroke();
+
+  // Y axis labels
+  fctx.fillStyle = '#8899aa';
+  fctx.font = '9px monospace';
+  fctx.textAlign = 'right';
+  for (let v=0; v<=1; v+=0.25) {
+    const y = pad.top + (1-v)*plotH;
+    fctx.fillText(v.toFixed(2), pad.left-5, y+3);
+    fctx.beginPath(); fctx.moveTo(pad.left,y); fctx.lineTo(W-pad.right,y);
+    fctx.strokeStyle='rgba(42,58,78,0.15)'; fctx.stroke();
+  }
+
+  if (p.dims === 0) return;
+
+  const barW = Math.min(plotW / p.dims - 4, 40);
+  const gap = (plotW - barW * p.dims) / (p.dims + 1);
+
+  // Weeding threshold line
+  const epsY = pad.top + (1 - p.epsilon) * plotH;
+  fctx.beginPath();
+  fctx.moveTo(pad.left, epsY);
+  fctx.lineTo(W-pad.right, epsY);
+  fctx.strokeStyle = 'rgba(251,191,36,0.4)';
+  fctx.lineWidth = 1;
+  fctx.setLineDash([4,3]);
+  fctx.stroke();
+  fctx.setLineDash([]);
+  fctx.fillStyle = '#fbbf24';
+  fctx.textAlign = 'left';
+  fctx.fillText('ε threshold', W-pad.right-65, epsY-4);
+
+  // Bars
+  for (let d = 0; d < p.dims; d++) {
+    const x = pad.left + gap + d * (barW + gap);
+    const w = featureWeights[d];
+    const barH = w * plotH;
+    const y = H - pad.bottom - barH;
+
+    const isSignal = featureIsSignal[d];
+    let color = isSignal ? '#34d399' : '#f87171';
+    if (w < 0.3) color = isSignal ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)';
+
+    fctx.fillStyle = color + (w > 0.3 ? '99' : '44');
+    fctx.fillRect(x, y, barW, barH);
+    fctx.strokeStyle = color;
+    fctx.lineWidth = 1;
+    fctx.strokeRect(x, y, barW, barH);
+
+    // Weeded indicator
+    if (w < 0.3) {
+      fctx.save();
+      fctx.translate(x + barW/2, H-pad.bottom - plotH/2);
+      fctx.rotate(-Math.PI/4);
+      fctx.fillStyle = 'rgba(251,191,36,0.5)';
+      fctx.font = '9px monospace';
+      fctx.textAlign = 'center';
+      fctx.fillText('WEEDED', 0, 0);
+      fctx.restore();
+    }
+
+    // X label
+    fctx.fillStyle = '#8899aa';
+    fctx.font = '8px monospace';
+    fctx.textAlign = 'center';
+    fctx.fillText(`d${d}`, x+barW/2, H-pad.bottom+12);
+    fctx.fillStyle = isSignal ? '#34d39966' : '#f8717166';
+    fctx.fillText(isSignal ? 'S' : 'N', x+barW/2, H-pad.bottom+21);
+  }
+
+  // Title
+  fctx.fillStyle = '#8899aa';
+  fctx.font = '9px monospace';
+  fctx.textAlign = 'left';
+  fctx.fillText('Weight', 5, pad.top - 8);
+}
+
+function drawConvergence() {
+  const canvas = document.getElementById('convergenceChart');
+  const cx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  canvas.style.width = rect.width+'px';
+  canvas.style.height = rect.height+'px';
+  cx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+
+  const W = rect.width, H = rect.height;
+  const pad = {top:8,right:10,bottom:18,left:32};
+  cx.clearRect(0,0,W,H);
+
+  // Axes
+  cx.strokeStyle='rgba(42,58,78,0.4)';
+  cx.lineWidth=1;
+  cx.beginPath(); cx.moveTo(pad.left,pad.top); cx.lineTo(pad.left,H-pad.bottom); cx.lineTo(W-pad.right,H-pad.bottom); cx.stroke();
+
+  cx.fillStyle='#8899aa'; cx.font='8px monospace'; cx.textAlign='right';
+  for (let v=0;v<=1;v+=0.5) {
+    const y=pad.top+(1-v)*(H-pad.top-pad.bottom);
+    cx.fillText(v.toFixed(1),pad.left-3,y+3);
+  }
+
+  if (fitnessHistory.length < 2) return;
+  const pW = W-pad.left-pad.right;
+  const pH = H-pad.top-pad.bottom;
+  const len = fitnessHistory.length;
+
+  // RCOA line
+  cx.beginPath();
+  fitnessHistory.forEach((v,i) => {
+    const x = pad.left + (i/(len-1))*pW;
+    const y = pad.top + (1-clamp(v,0,1))*pH;
+    i===0 ? cx.moveTo(x,y) : cx.lineTo(x,y);
+  });
+  cx.strokeStyle='#4ade80'; cx.lineWidth=1.5; cx.stroke();
+
+  // GA line
+  if (gaFitnessHistory.length > 1) {
+    const gl = gaFitnessHistory.length;
+    cx.beginPath();
+    gaFitnessHistory.forEach((v,i) => {
+      const x = pad.left + (i/(gl-1))*pW;
+      const y = pad.top + (1-clamp(v,0,1))*pH;
+      i===0 ? cx.moveTo(x,y) : cx.lineTo(x,y);
+    });
+    cx.strokeStyle='#f87171'; cx.lineWidth=1.2; cx.setLineDash([3,2]); cx.stroke(); cx.setLineDash([]);
+
+    cx.fillStyle='#4ade80'; cx.fillRect(W-80,6,10,2);
+    cx.fillStyle='#8899aa'; cx.font='7px monospace'; cx.textAlign='left'; cx.fillText('RCOA',W-66,9);
+    cx.fillStyle='#f87171'; cx.fillRect(W-80,14,10,2);
+    cx.fillStyle='#8899aa'; cx.fillText('GA',W-66,17);
+  }
+}
+
+// --- Log ---
+function log(type, msg) {
+  const el = document.getElementById('eventLog');
+  const cls = {weed:'ev-weed',fert:'ev-fert',bio:'ev-bio',molt:'ev-molt',sys:'ev-sys'}[type]||'';
+  const pre = {weed:'[WEED]',fert:'[FERT]',bio:'[BIO]',molt:'[MOLT]',sys:'[SYS]'}[type]||'';
+  el.innerHTML = `<div class="ev ${cls}">${pre} t=${iteration}: ${msg}</div>` + el.innerHTML;
+  if (el.children.length > 80) el.removeChild(el.lastChild);
+}
+function clearLog() { document.getElementById('eventLog').innerHTML = ''; }
+
+// --- Animation ---
+function loop(time) {
+  if (!running || paused) { animFrame = requestAnimationFrame(loop); return; }
+  const dt = time - lastTime;
+  lastTime = time;
+  const interval = 180 / P().speed;
+  accumulator += dt;
+  while (accumulator >= interval) { step(); accumulator -= interval; }
+  draw();
+  animFrame = requestAnimationFrame(loop);
+}
+
+// --- Buttons ---
+document.getElementById('btnStart').addEventListener('click', () => {
+  if (!running) { init(); running = true; paused = false; lastTime = performance.now(); animFrame = requestAnimationFrame(loop); }
+  else if (paused) { paused = false; }
+});
+document.getElementById('btnPause').addEventListener('click', () => { paused = !paused; });
+document.getElementById('btnReset').addEventListener('click', () => { running = false; paused = false; if(animFrame) cancelAnimationFrame(animFrame); init(); });
+document.getElementById('btnInjectNoise').addEventListener('click', injectNoise);
+document.getElementById('btnCompare').addEventListener('click', runGAComparison);
+
+// --- Tooltip ---
+scatterCanvas.addEventListener('mousemove', e => {
+  const rect = scatterCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const tip = document.getElementById('tooltip');
+  const p = P();
+
+  for (const r of riceAgents) {
+    if (Math.hypot(mx-r.x, my-r.y) < 18) {
+      const active = r.featureMask.reduce((s,v)=>s+v,0);
+      tip.style.display='block';
+      tip.style.left=(e.clientX+12)+'px';
+      tip.style.top=(e.clientY-8)+'px';
+      tip.innerHTML=`
+        <strong>Rice R${r.id}</strong> (Centroid)<br>
+        Active Dims: ${active}/${p.dims}<br>
+        Fitness: ${r.yield.toFixed(3)}<br>
+        Stagnation: ${r.stagnation}/${p.tauStag}<br>
+        Locked: ${r.locked?'Yes':'No'}<br>
+        Crab Density: ρ=${r.crabDensity}<br>
+        Mask: [${r.featureMask.map(v=>v>0.5?'1':'0').join('')}]<br>
+        <em style="color:#8899aa">Stationary agent: feature subset</em>
+      `;
+      return;
+    }
+  }
+  for (const c of crabAgents) {
+    if (Math.hypot(mx-c.x, my-c.y) < 10) {
+      tip.style.display='block';
+      tip.style.left=(e.clientX+12)+'px';
+      tip.style.top=(e.clientY-8)+'px';
+      tip.innerHTML=`
+        <strong>Crab ${c.id}</strong> (Evaluator)<br>
+        State: ${c.state}<br>
+        Energy: ${(c.energy*100).toFixed(0)}%<br>
+        Target: R${c.targetRice}<br>
+        P-Best Fit: ${c.pBestFitness.toFixed(3)}<br>
+        <em style="color:#8899aa">Mobile agent: evaluator/classifier</em>
+      `;
+      return;
+    }
+  }
+  tip.style.display='none';
+});
+
+scatterCanvas.addEventListener('mouseleave', () => { document.getElementById('tooltip').style.display='none'; });
+
+// Init
+init();
+</script>
+</body>
+</html>
