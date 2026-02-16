@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCOA - Rice-Crab Optimization Algorithm</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2332;
+    --border: #2a3a4e;
+    --text: #e2e8f0;
+    --text-dim: #8899aa;
+    --rice-green: #4ade80;
+    --crab-orange: #fb923c;
+    --accent: #818cf8;
+    --accent2: #c084fc;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--bg);
+    color:var(--text);
+    font-family:'SF Mono','Fira Code','Consolas',monospace;
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .header {
+    background: linear-gradient(135deg, #111827 0%, #1e293b 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 40px 30px;
+    text-align: center;
+  }
+
+  .header h1 {
+    font-size: 2.5rem;
+    background: linear-gradient(135deg, var(--rice-green), var(--crab-orange), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 10px;
+  }
+
+  .header p {
+    color: var(--text-dim);
+    font-size: 1rem;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 20px;
+    flex: 1;
+  }
+
+  .section {
+    margin-bottom: 50px;
+  }
+
+  .section h2 {
+    font-size: 1.8rem;
+    color: var(--accent);
+    margin-bottom: 20px;
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 10px;
+  }
+
+  .demo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 25px;
+    margin-top: 20px;
+  }
+
+  .demo-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 25px;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+  }
+
+  .demo-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(129, 140, 248, 0.15);
+  }
+
+  .demo-card h3 {
+    font-size: 1.3rem;
+    color: var(--rice-green);
+    margin-bottom: 10px;
+  }
+
+  .demo-card p {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    margin-bottom: 15px;
+  }
+
+  .demo-tag {
+    display: inline-block;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--accent);
+    margin-right: 8px;
+    margin-top: 5px;
+  }
+
+  .about {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 25px;
+    margin-top: 20px;
+  }
+
+  .about p {
+    color: var(--text-dim);
+    margin-bottom: 15px;
+  }
+
+  .about a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .about a:hover {
+    text-decoration: underline;
+  }
+
+  footer {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 20px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  footer a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  footer a:hover {
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🌾🦀 RCOA</h1>
+  <p>Rice-Crab Optimization Algorithm - Interactive Demos</p>
+</div>
+
+<div class="container">
+  <section class="section">
+    <h2>Interactive Demonstrations</h2>
+    <div class="demo-grid">
+      <a href="fleet-maintenance-simulator.html" class="demo-card">
+        <h3>Fleet Maintenance Simulator</h3>
+        <p>Simulate fleet maintenance scheduling using the RCOA algorithm. Watch as the algorithm optimizes maintenance schedules to minimize downtime and costs.</p>
+        <span class="demo-tag">Optimization</span>
+        <span class="demo-tag">Scheduling</span>
+      </a>
+
+      <a href="pattern-recognition-denoiser.html" class="demo-card">
+        <h3>Pattern Recognition Denoiser</h3>
+        <p>Explore pattern recognition and noise reduction capabilities. See how RCOA processes and cleans noisy data patterns in real-time.</p>
+        <span class="demo-tag">Pattern Recognition</span>
+        <span class="demo-tag">Signal Processing</span>
+      </a>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>About RCOA</h2>
+    <div class="about">
+      <p>
+        The Rice-Crab Optimization Algorithm (RCOA) is a nature-inspired metaheuristic optimization algorithm
+        that combines exploration and exploitation strategies inspired by rice growth patterns and crab foraging behavior.
+      </p>
+      <p>
+        This collection of interactive demos showcases various applications of the RCOA algorithm in solving
+        real-world optimization problems across different domains.
+      </p>
+      <p>
+        For more information, check out the <a href="Rice-Crab Algorithm For Optimization.pdf">research paper</a>.
+      </p>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <p>RCOA - Rice-Crab Optimization Algorithm | <a href="https://github.com/stevengritz/rcoa">View on GitHub</a></p>
+</footer>
+
+</body>
+</html>
