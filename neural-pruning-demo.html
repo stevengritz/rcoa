@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RCOA Neural Network Pruning</title>
+<style>
+  :root {
+    --bg: #0a0e17; --surface: #111827; --surface2: #1a2332;
+    --border: #2a3a4e; --text: #e2e8f0; --text-dim: #8899aa;
+    --active: #4ade80; --pruned: #f87171; --testing: #facc15;
+    --evaluator: #fb923c; --working: #60a5fa;
+    --accent: #818cf8; --accent2: #c084fc;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'SF Mono','Fira Code','Consolas',monospace; overflow-x:hidden; }
+
+  .app-header {
+    background:linear-gradient(135deg,#111827 0%,#1e293b 100%);
+    border-bottom:1px solid var(--border); padding:18px 28px;
+    display:flex; align-items:center; gap:20px;
+  }
+  .app-header h1 { font-size:1.25em; font-weight:600; }
+  .app-header h1 span { color:var(--accent2); }
+  .app-header .subtitle { color:var(--text-dim); font-size:0.78em; }
+
+  .main-layout { display:grid; grid-template-columns:300px 1fr 340px; height:calc(100vh - 72px); }
+
+  .panel { background:var(--surface); overflow-y:auto; padding:14px; }
+  .panel-left { border-right:1px solid var(--border); }
+  .panel-right { border-left:1px solid var(--border); }
+  .panel-section { margin-bottom:16px; }
+  .panel-section h3 {
+    font-size:0.72em; text-transform:uppercase; letter-spacing:1.4px;
+    color:var(--accent); margin-bottom:9px; padding-bottom:5px;
+    border-bottom:1px solid var(--border);
+  }
+
+  .param-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; }
+  .param-row label { font-size:0.73em; color:var(--text-dim); flex:1; }
+  .param-row input[type=range] { width:96px; accent-color:var(--accent); }
+  .param-row .val { font-size:0.73em; color:var(--active); width:38px; text-align:right; }
+
+  .btn {
+    padding:7px 14px; border:1px solid var(--border); border-radius:4px;
+    background:var(--surface2); color:var(--text); font-family:inherit;
+    font-size:0.76em; cursor:pointer; transition:all .2s;
+  }
+  .btn:hover { border-color:var(--accent); background:#1e293b; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn.primary:hover { background:#6366f1; }
+  .btn.danger { border-color:var(--pruned); color:var(--pruned); }
+  .btn-row { display:flex; gap:7px; margin-top:9px; flex-wrap:wrap; }
+
+  .center-panel { position:relative; background:#080c14; overflow:hidden; }
+  #netCanvas { width:100%; height:100%; display:block; }
+
+  .overlay-stats {
+    position:absolute; top:12px; left:12px;
+    background:rgba(10,14,23,.9); border:1px solid var(--border);
+    border-radius:5px; padding:10px 14px; font-size:0.7em; pointer-events:none;
+  }
+  .overlay-stats .sl { display:flex; gap:10px; margin-bottom:3px; }
+  .overlay-stats .sk { color:var(--text-dim); }
+  .overlay-stats .sv { color:var(--active); }
+
+  .legend-bar {
+    position:absolute; bottom:12px; left:12px;
+    background:rgba(10,14,23,.9); border:1px solid var(--border);
+    border-radius:5px; padding:8px 14px; font-size:0.65em;
+    display:flex; gap:14px; pointer-events:none;
+  }
+  .legend-item { display:flex; align-items:center; gap:5px; }
+  .legend-dot { width:8px; height:8px; border-radius:50%; }
+
+  .metric-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .metric-card {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:5px; padding:9px; text-align:center;
+  }
+  .metric-card .mv { font-size:1.3em; font-weight:700; }
+  .metric-card .ml { font-size:.65em; color:var(--text-dim); margin-top:2px; }
+
+  .chart-box { height:150px; background:var(--surface2); border:1px solid var(--border); border-radius:5px; margin-bottom:11px; position:relative; }
+  .chart-box canvas { width:100%; height:100%; }
+
+  .event-log {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:5px; padding:7px; max-height:170px;
+    overflow-y:auto; font-size:.64em; line-height:1.7;
+  }
+  .ev { border-bottom:1px solid #1a2332; padding:1px 0; }
+  .ev-prune { color:var(--pruned); }
+  .ev-test { color:var(--testing); }
+  .ev-keep { color:var(--active); }
+  .ev-sys { color:var(--working); }
+
+  .comparison-table { width:100%; font-size:.69em; border-collapse:collapse; margin-top:7px; }
+  .comparison-table th,.comparison-table td { padding:3px 5px; border:1px solid var(--border); text-align:left; }
+  .comparison-table th { background:var(--surface); color:var(--accent); }
+  .winner { color:var(--active); font-weight:600; }
+
+  ::-webkit-scrollbar { width:5px; }
+  ::-webkit-scrollbar-track { background:var(--surface); }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div>
+    <h1><span>RCOA</span> Neural Network Pruning</h1>
+    <div class="subtitle">Intelligent Weight Pruning via Bio-Inspired Sensitivity Analysis</div>
+  </div>
+</div>
+
+<div class="main-layout">
+  <!-- LEFT PANEL -->
+  <div class="panel panel-left">
+    <div class="panel-section">
+      <h3>Network Architecture</h3>
+      <div class="param-row">
+        <label>Input Neurons</label>
+        <input type="range" id="pInput" min="4" max="16" value="8">
+        <span class="val" id="vInput">8</span>
+      </div>
+      <div class="param-row">
+        <label>Hidden Neurons</label>
+        <input type="range" id="pHidden" min="4" max="24" value="12">
+        <span class="val" id="vHidden">12</span>
+      </div>
+      <div class="param-row">
+        <label>Output Neurons</label>
+        <input type="range" id="pOutput" min="2" max="8" value="4">
+        <span class="val" id="vOutput">4</span>
+      </div>
+      <div class="param-row">
+        <label>Target Sparsity %</label>
+        <input type="range" id="pSparsity" min="10" max="80" value="40">
+        <span class="val" id="vSparsity">40</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>RCOA Parameters</h3>
+      <div class="param-row">
+        <label>Evaluators (Crabs)</label>
+        <input type="range" id="pCrabs" min="2" max="10" value="5">
+        <span class="val" id="vCrabs">5</span>
+      </div>
+      <div class="param-row">
+        <label>Cannibalism γ</label>
+        <input type="range" id="pGamma" min="0" max="100" value="50">
+        <span class="val" id="vGamma">0.50</span>
+      </div>
+      <div class="param-row">
+        <label>Sensitivity Threshold ε</label>
+        <input type="range" id="pEpsilon" min="1" max="50" value="15">
+        <span class="val" id="vEpsilon">0.15</span>
+      </div>
+      <div class="param-row">
+        <label>Stagnation τ</label>
+        <input type="range" id="pTauStag" min="2" max="20" value="6">
+        <span class="val" id="vTauStag">6</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Simulation</h3>
+      <div class="param-row">
+        <label>Speed</label>
+        <input type="range" id="pSpeed" min="1" max="10" value="4">
+        <span class="val" id="vSpeed">4</span>
+      </div>
+      <div class="param-row">
+        <label><input type="checkbox" id="togInstant" checked> Instant Mode</label>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnStart">Start Pruning</button>
+        <button class="btn" id="btnPause">Pause</button>
+        <button class="btn danger" id="btnReset">Reset</button>
+      </div>
+      <div class="btn-row" style="margin-top:7px;">
+        <button class="btn" id="btnCompare">Compare vs Magnitude</button>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Operator Toggles</h3>
+      <div class="param-row"><label><input type="checkbox" id="togWeed" checked> Weeding (Prune)</label></div>
+      <div class="param-row"><label><input type="checkbox" id="togFert" checked> Fertilization (Fine-tune)</label></div>
+      <div class="param-row"><label><input type="checkbox" id="togBio" checked> Bioturbation (Perturb)</label></div>
+    </div>
+  </div>
+
+  <!-- CENTER PANEL -->
+  <div class="center-panel">
+    <canvas id="netCanvas"></canvas>
+    <div class="overlay-stats">
+      <div class="sl"><span class="sk">Iteration:</span><span class="sv" id="statIter">0</span></div>
+      <div class="sl"><span class="sk">Accuracy:</span><span class="sv" id="statAcc">-</span></div>
+      <div class="sl"><span class="sk">Sparsity:</span><span class="sv" id="statSparsity">0%</span></div>
+      <div class="sl"><span class="sk">Params Remaining:</span><span class="sv" id="statParams">-</span></div>
+    </div>
+    <div class="legend-bar">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--active)"></div> Active</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--testing)"></div> Testing</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--pruned)"></div> Pruned</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--evaluator)"></div> Evaluator</div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel panel-right">
+    <div class="panel-section">
+      <h3>Pruning Metrics</h3>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="mv" id="mAccuracy" style="color:var(--active)">-</div><div class="ml">Accuracy</div></div>
+        <div class="metric-card"><div class="mv" id="mPruned" style="color:var(--pruned)">-</div><div class="ml">Neurons Pruned</div></div>
+        <div class="metric-card"><div class="mv" id="mSparsity" style="color:var(--accent2)">-</div><div class="ml">Weight Sparsity</div></div>
+        <div class="metric-card"><div class="mv" id="mCompression" style="color:var(--working)">-</div><div class="ml">Compression</div></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Accuracy vs Sparsity</h3>
+      <div class="chart-box"><canvas id="tradeoffChart"></canvas></div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Operator Activity</h3>
+      <div style="font-size:0.7em; line-height:1.8;">
+        <div class="param-row"><span style="color:var(--pruned);">●</span> Neurons Pruned: <span id="contribPrune" style="color:var(--pruned);">0</span></div>
+        <div class="param-row"><span style="color:var(--active);">●</span> Weights Tuned: <span id="contribTune" style="color:var(--active);">0</span></div>
+        <div class="param-row"><span style="color:var(--testing);">●</span> Tests Run: <span id="contribTest" style="color:var(--testing);">0</span></div>
+      </div>
+    </div>
+
+    <div class="panel-section" id="compSection" style="display:none;">
+      <h3>RCOA vs Magnitude Pruning</h3>
+      <table class="comparison-table" id="compTable">
+        <tr><th>Metric</th><th>RCOA</th><th>Magnitude</th></tr>
+      </table>
+    </div>
+
+    <div class="panel-section">
+      <h3>How RCOA Prunes Networks</h3>
+      <div style="font-size:0.68em; line-height:1.6; color:var(--text-dim);">
+        <p><strong>Neurons = Rice:</strong> Each neuron is a candidate for pruning. Its "health" is its sensitivity score—how much accuracy drops if removed.</p>
+        <p style="margin-top:6px;"><strong>Evaluators = Crabs:</strong> Mobile agents that test neurons. They compute sensitivity by forward passes with/without each neuron.</p>
+        <p style="margin-top:6px;"><strong>Weeding = Pruning:</strong> If sensitivity < ε, the neuron is "weeded" (pruned). Unlike magnitude pruning, this considers actual impact on accuracy.</p>
+        <p style="margin-top:6px;"><strong>Density Penalty:</strong> Prevents all evaluators from testing the same neurons, ensuring thorough coverage of the network.</p>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Event Log</h3>
+      <div class="event-log" id="eventLog"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// RCOA NEURAL NETWORK PRUNING DEMO
+// Demonstrates RCOA for intelligent network pruning
+// ============================================================
+
+const canvas = document.getElementById('netCanvas');
+const ctx = canvas.getContext('2d');
+const chartCanvas = document.getElementById('tradeoffChart');
+const chartCtx = chartCanvas.getContext('2d');
+
+// State
+let neurons = { input: [], hidden: [], output: [] };
+let weights = { ih: [], ho: [] };
+let evaluators = [];
+let iteration = 0, running = false, paused = false;
+let accuracyHistory = [], sparsityHistory = [];
+let magAccHistory = [], magSparsityHistory = [];
+let animFrame = null, lastTime = 0, accumulator = 0;
+let opContrib = { prune: 0, tune: 0, test: 0 };
+let baselineAccuracy = 0;
+
+// Parameters
+function P() {
+  return {
+    nInput: +document.getElementById('pInput').value,
+    nHidden: +document.getElementById('pHidden').value,
+    nOutput: +document.getElementById('pOutput').value,
+    targetSparsity: +document.getElementById('pSparsity').value / 100,
+    nCrabs: +document.getElementById('pCrabs').value,
+    gamma: +document.getElementById('pGamma').value / 100,
+    epsilon: +document.getElementById('pEpsilon').value / 100,
+    tauStag: +document.getElementById('pTauStag').value,
+    speed: +document.getElementById('pSpeed').value,
+    instantMode: document.getElementById('togInstant').checked,
+    weedOn: document.getElementById('togWeed').checked,
+    fertOn: document.getElementById('togFert').checked,
+    bioOn: document.getElementById('togBio').checked,
+  };
+}
+
+// Slider bindings
+document.querySelectorAll('input[type=range]').forEach(el => {
+  el.addEventListener('input', () => {
+    const vid = 'v' + el.id.slice(1);
+    const ve = document.getElementById(vid);
+    if (!ve) return;
+    let v = el.value;
+    if (['pGamma','pEpsilon'].includes(el.id)) v = (v/100).toFixed(2);
+    ve.textContent = v;
+  });
+});
+
+// Math utilities
+function rand(a,b) { return a + Math.random()*(b-a); }
+function clamp(v,lo,hi) { return Math.max(lo,Math.min(hi,v)); }
+function gaussRand() {
+  let u=0,v=0;
+  while(!u) u=Math.random();
+  while(!v) v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+function relu(x) { return Math.max(0, x); }
+function mean(arr) { return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0; }
+
+// Resize
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  
+  const chartRect = chartCanvas.parentElement.getBoundingClientRect();
+  chartCanvas.width = chartRect.width * devicePixelRatio;
+  chartCanvas.height = chartRect.height * devicePixelRatio;
+  chartCanvas.style.width = chartRect.width + 'px';
+  chartCanvas.style.height = chartRect.height + 'px';
+  chartCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+// Initialize network
+function init() {
+  resize();
+  const p = P();
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+
+  iteration = 0;
+  accuracyHistory = [];
+  sparsityHistory = [];
+  magAccHistory = [];
+  magSparsityHistory = [];
+  opContrib = { prune: 0, tune: 0, test: 0 };
+  document.getElementById('compSection').style.display = 'none';
+
+  // Create neurons with positions
+  const layerX = [W * 0.15, W * 0.5, W * 0.85];
+  
+  neurons.input = [];
+  for (let i = 0; i < p.nInput; i++) {
+    const y = H * 0.1 + (H * 0.8) * i / (p.nInput - 1 || 1);
+    neurons.input.push({
+      id: i, x: layerX[0], y,
+      active: true, sensitivity: 1.0,
+      testCount: 0, stagnation: 0,
+      layer: 'input'
+    });
+  }
+
+  neurons.hidden = [];
+  for (let i = 0; i < p.nHidden; i++) {
+    const y = H * 0.1 + (H * 0.8) * i / (p.nHidden - 1 || 1);
+    neurons.hidden.push({
+      id: i, x: layerX[1], y,
+      active: true, sensitivity: rand(0.3, 1.0),
+      testCount: 0, stagnation: 0,
+      layer: 'hidden'
+    });
+  }
+
+  neurons.output = [];
+  for (let i = 0; i < p.nOutput; i++) {
+    const y = H * 0.1 + (H * 0.8) * i / (p.nOutput - 1 || 1);
+    neurons.output.push({
+      id: i, x: layerX[2], y,
+      active: true, sensitivity: 1.0,
+      testCount: 0, stagnation: 0,
+      layer: 'output'
+    });
+  }
+
+  // Initialize weights (random)
+  weights.ih = [];
+  for (let i = 0; i < p.nInput; i++) {
+    weights.ih[i] = [];
+    for (let h = 0; h < p.nHidden; h++) {
+      weights.ih[i][h] = gaussRand() * 0.5;
+    }
+  }
+
+  weights.ho = [];
+  for (let h = 0; h < p.nHidden; h++) {
+    weights.ho[h] = [];
+    for (let o = 0; o < p.nOutput; o++) {
+      weights.ho[h][o] = gaussRand() * 0.5;
+    }
+  }
+
+  // Create evaluators
+  evaluators = [];
+  for (let j = 0; j < p.nCrabs; j++) {
+    const target = neurons.hidden[j % p.nHidden];
+    evaluators.push({
+      id: j,
+      x: target.x + gaussRand() * 30,
+      y: target.y + gaussRand() * 30,
+      vx: 0, vy: 0,
+      target: null,
+      state: 'Searching',
+      testsRun: 0,
+    });
+  }
+
+  // Compute baseline accuracy
+  baselineAccuracy = computeAccuracy();
+
+  clearLog();
+  log('sys', `Network: ${p.nInput}-${p.nHidden}-${p.nOutput} (${countParams()} params)`);
+  log('sys', `Target sparsity: ${(p.targetSparsity*100).toFixed(0)}%`);
+  updateMetrics();
+  draw();
+}
+
+// Forward pass (simplified)
+function forward(input, excludeNeuron = null) {
+  const p = P();
+  
+  // Input to hidden
+  const hidden = neurons.hidden.map((h, hi) => {
+    if (!h.active || (excludeNeuron && excludeNeuron.layer === 'hidden' && excludeNeuron.id === hi)) {
+      return 0;
+    }
+    let sum = 0;
+    neurons.input.forEach((inp, ii) => {
+      if (inp.active) {
+        sum += input[ii] * (weights.ih[ii]?.[hi] || 0);
+      }
+    });
+    return relu(sum);
+  });
+
+  // Hidden to output
+  const output = neurons.output.map((o, oi) => {
+    let sum = 0;
+    neurons.hidden.forEach((h, hi) => {
+      if (h.active && !(excludeNeuron && excludeNeuron.layer === 'hidden' && excludeNeuron.id === hi)) {
+        sum += hidden[hi] * (weights.ho[hi]?.[oi] || 0);
+      }
+    });
+    return sigmoid(sum);
+  });
+
+  return output;
+}
+
+// Compute accuracy on synthetic task
+function computeAccuracy(excludeNeuron = null) {
+  const p = P();
+  let correct = 0;
+  const nSamples = 50;
+
+  for (let s = 0; s < nSamples; s++) {
+    // Generate random input
+    const input = Array.from({ length: p.nInput }, () => rand(0, 1));
+    
+    // Target: simple XOR-like pattern
+    const target = Math.floor(input.reduce((a, b) => a + b, 0)) % p.nOutput;
+    
+    // Forward pass
+    const output = forward(input, excludeNeuron);
+    const predicted = output.indexOf(Math.max(...output));
+    
+    if (predicted === target) correct++;
+  }
+
+  return correct / nSamples;
+}
+
+// Count active parameters
+function countParams() {
+  const p = P();
+  let count = 0;
+  
+  neurons.hidden.forEach((h, hi) => {
+    if (h.active) {
+      // Input connections
+      neurons.input.forEach((inp) => {
+        if (inp.active) count++;
+      });
+      // Output connections
+      neurons.output.forEach((out) => {
+        if (out.active) count++;
+      });
+    }
+  });
+  
+  return count;
+}
+
+// Current sparsity
+function currentSparsity() {
+  const totalHidden = neurons.hidden.length;
+  const pruned = neurons.hidden.filter(n => !n.active).length;
+  return pruned / totalHidden;
+}
+
+// RCOA Step
+function step() {
+  const p = P();
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  iteration++;
+
+  // Reset test counts
+  neurons.hidden.forEach(n => n.testCount = 0);
+
+  // Count evaluator density per neuron
+  evaluators.forEach(e => {
+    if (e.target !== null && e.state === 'Testing') {
+      neurons.hidden[e.target].testCount++;
+    }
+  });
+
+  // Evaluator movement and operators
+  evaluators.forEach(e => {
+    // Target selection with density penalty
+    let bestAttr = -Infinity, bestIdx = -1;
+    neurons.hidden.forEach((n, i) => {
+      if (!n.active) return;
+      const urgency = n.sensitivity; // Higher sensitivity = more important to test
+      const attr = urgency / (1 + p.gamma * n.testCount);
+      if (attr > bestAttr) { bestAttr = attr; bestIdx = i; }
+    });
+
+    if (bestIdx === -1) return; // All neurons pruned
+
+    e.target = bestIdx;
+    const target = neurons.hidden[bestIdx];
+
+    // Instant mode or movement
+    if (p.instantMode) {
+      e.x = target.x + rand(-10, 10);
+      e.y = target.y + rand(-10, 10);
+    } else {
+      const dx = target.x - e.x, dy = target.y - e.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 30) {
+        e.vx = 0.7 * e.vx + 0.3 * dx;
+        e.vy = 0.7 * e.vy + 0.3 * dy;
+        const spd = Math.hypot(e.vx, e.vy);
+        if (spd > 15) { e.vx *= 15/spd; e.vy *= 15/spd; }
+        e.x += e.vx; e.y += e.vy;
+        e.state = 'Searching';
+        return;
+      }
+    }
+
+    e.state = 'Testing';
+
+    // Operator A: WEEDING (pruning via sensitivity test)
+    if (p.weedOn && target.active) {
+      // Compute sensitivity: accuracy drop when this neuron is removed
+      const accWith = computeAccuracy();
+      const accWithout = computeAccuracy(target);
+      const sensitivity = accWith - accWithout;
+      target.sensitivity = Math.abs(sensitivity);
+      opContrib.test++;
+
+      if (sensitivity < p.epsilon) {
+        // Low sensitivity - prune it!
+        target.active = false;
+        opContrib.prune++;
+        log('prune', `Pruned H${target.id}: sens=${sensitivity.toFixed(3)} < ε=${p.epsilon.toFixed(2)}`);
+      } else {
+        if (iteration % 20 === 0) log('keep', `Kept H${target.id}: sens=${sensitivity.toFixed(3)}`);
+      }
+    }
+
+    // Operator B: FERTILIZATION (fine-tune connected weights)
+    if (p.fertOn && target.active) {
+      // Small random adjustment to weights
+      neurons.input.forEach((inp, ii) => {
+        if (inp.active && weights.ih[ii]) {
+          weights.ih[ii][target.id] += gaussRand() * 0.01;
+        }
+      });
+      neurons.output.forEach((out, oi) => {
+        if (out.active && weights.ho[target.id]) {
+          weights.ho[target.id][oi] += gaussRand() * 0.01;
+        }
+      });
+      opContrib.tune++;
+    }
+
+    // Operator C: BIOTURBATION (larger perturbation on stagnant neurons)
+    if (p.bioOn && target.active) {
+      const prevSens = target.sensitivity;
+      if (Math.abs(prevSens - target.sensitivity) < 0.01) {
+        target.stagnation++;
+      } else {
+        target.stagnation = 0;
+      }
+
+      if (target.stagnation >= p.tauStag) {
+        // Big perturbation to escape local optimum
+        neurons.input.forEach((inp, ii) => {
+          if (inp.active && weights.ih[ii]) {
+            weights.ih[ii][target.id] += gaussRand() * 0.1;
+          }
+        });
+        target.stagnation = 0;
+        log('test', `Perturbed H${target.id}: stagnation reset`);
+      }
+    }
+
+    e.testsRun++;
+  });
+
+  // Record history
+  const acc = computeAccuracy();
+  const sparsity = currentSparsity();
+  accuracyHistory.push(acc);
+  sparsityHistory.push(sparsity);
+  if (accuracyHistory.length > 200) {
+    accuracyHistory.shift();
+    sparsityHistory.shift();
+  }
+
+  // Check if target sparsity reached
+  if (sparsity >= p.targetSparsity && running) {
+    log('sys', `Target sparsity ${(p.targetSparsity*100).toFixed(0)}% reached!`);
+  }
+
+  updateMetrics();
+}
+
+// Magnitude pruning comparison
+function runMagnitudeComparison() {
+  const p = P();
+  log('sys', 'Running magnitude-based pruning comparison...');
+  magAccHistory = [];
+  magSparsityHistory = [];
+
+  // Clone network state
+  const origActive = neurons.hidden.map(n => n.active);
+  neurons.hidden.forEach(n => n.active = true);
+
+  // Compute weight magnitudes for hidden neurons
+  const magnitudes = neurons.hidden.map((h, hi) => {
+    let mag = 0;
+    neurons.input.forEach((inp, ii) => {
+      mag += Math.abs(weights.ih[ii]?.[hi] || 0);
+    });
+    neurons.output.forEach((out, oi) => {
+      mag += Math.abs(weights.ho[hi]?.[oi] || 0);
+    });
+    return { idx: hi, mag };
+  });
+
+  magnitudes.sort((a, b) => a.mag - b.mag);
+
+  // Progressively prune lowest magnitude neurons
+  const steps = Math.min(accuracyHistory.length, 100);
+  for (let s = 0; s < steps; s++) {
+    const toPrune = Math.floor(magnitudes.length * (s / steps) * p.targetSparsity);
+    
+    neurons.hidden.forEach(n => n.active = true);
+    for (let i = 0; i < toPrune && i < magnitudes.length; i++) {
+      neurons.hidden[magnitudes[i].idx].active = false;
+    }
+
+    const acc = computeAccuracy();
+    const sparsity = currentSparsity();
+    magAccHistory.push(acc);
+    magSparsityHistory.push(sparsity);
+  }
+
+  // Restore original state
+  neurons.hidden.forEach((n, i) => n.active = origActive[i]);
+
+  // Show comparison
+  const rcoaFinalAcc = accuracyHistory.length > 0 ? accuracyHistory[accuracyHistory.length-1] : 0;
+  const rcoaFinalSparse = sparsityHistory.length > 0 ? sparsityHistory[sparsityHistory.length-1] : 0;
+  const magFinalAcc = magAccHistory.length > 0 ? magAccHistory[magAccHistory.length-1] : 0;
+  const magFinalSparse = magSparsityHistory.length > 0 ? magSparsityHistory[magSparsityHistory.length-1] : 0;
+
+  document.getElementById('compSection').style.display = 'block';
+  document.getElementById('compTable').innerHTML = `
+    <tr><th>Metric</th><th>RCOA</th><th>Magnitude</th></tr>
+    <tr><td>Final Accuracy</td><td class="${rcoaFinalAcc > magFinalAcc ? 'winner' : ''}">${(rcoaFinalAcc*100).toFixed(1)}%</td><td class="${magFinalAcc > rcoaFinalAcc ? 'winner' : ''}">${(magFinalAcc*100).toFixed(1)}%</td></tr>
+    <tr><td>Sparsity</td><td>${(rcoaFinalSparse*100).toFixed(1)}%</td><td>${(magFinalSparse*100).toFixed(1)}%</td></tr>
+    <tr><td>Neurons Pruned</td><td>${neurons.hidden.filter(n=>!n.active).length}</td><td>${Math.floor(neurons.hidden.length * magFinalSparse)}</td></tr>
+  `;
+  log('sys', `Comparison: RCOA ${(rcoaFinalAcc*100).toFixed(1)}% vs Magnitude ${(magFinalAcc*100).toFixed(1)}%`);
+}
+
+// Metrics
+function updateMetrics() {
+  const acc = computeAccuracy();
+  const sparsity = currentSparsity();
+  const pruned = neurons.hidden.filter(n => !n.active).length;
+  const totalH = neurons.hidden.length;
+  const params = countParams();
+  const origParams = neurons.input.length * neurons.hidden.length + neurons.hidden.length * neurons.output.length;
+  const compression = origParams > 0 ? (1 - params / origParams) * 100 : 0;
+
+  document.getElementById('statIter').textContent = iteration;
+  document.getElementById('statAcc').textContent = (acc * 100).toFixed(1) + '%';
+  document.getElementById('statSparsity').textContent = (sparsity * 100).toFixed(1) + '%';
+  document.getElementById('statParams').textContent = params;
+
+  document.getElementById('mAccuracy').textContent = (acc * 100).toFixed(1) + '%';
+  document.getElementById('mPruned').textContent = `${pruned}/${totalH}`;
+  document.getElementById('mSparsity').textContent = (sparsity * 100).toFixed(1) + '%';
+  document.getElementById('mCompression').textContent = compression.toFixed(1) + '%';
+
+  document.getElementById('contribPrune').textContent = opContrib.prune;
+  document.getElementById('contribTune').textContent = opContrib.tune;
+  document.getElementById('contribTest').textContent = opContrib.test;
+}
+
+// Logging
+function log(type, msg) {
+  const el = document.getElementById('eventLog');
+  const cls = { prune:'ev-prune', test:'ev-test', keep:'ev-keep', sys:'ev-sys' }[type] || '';
+  const prefix = { prune:'[PRUNE]', test:'[TEST]', keep:'[KEEP]', sys:'[SYS]' }[type] || '';
+  el.innerHTML = `<div class="ev ${cls}">${prefix} t=${iteration}: ${msg}</div>` + el.innerHTML;
+  if (el.children.length > 80) el.removeChild(el.lastChild);
+}
+function clearLog() { document.getElementById('eventLog').innerHTML = ''; }
+
+// Drawing
+function draw() {
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  ctx.fillStyle = '#080c14';
+  ctx.fillRect(0, 0, W, H);
+
+  // Draw connections (weights)
+  ctx.lineWidth = 1;
+  neurons.input.forEach((inp, ii) => {
+    if (!inp.active) return;
+    neurons.hidden.forEach((h, hi) => {
+      if (!h.active) return;
+      const w = weights.ih[ii]?.[hi] || 0;
+      const alpha = Math.min(Math.abs(w) * 0.5, 0.4);
+      ctx.strokeStyle = w > 0 ? `rgba(74,222,128,${alpha})` : `rgba(248,113,113,${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(inp.x, inp.y);
+      ctx.lineTo(h.x, h.y);
+      ctx.stroke();
+    });
+  });
+
+  neurons.hidden.forEach((h, hi) => {
+    if (!h.active) return;
+    neurons.output.forEach((out, oi) => {
+      const w = weights.ho[hi]?.[oi] || 0;
+      const alpha = Math.min(Math.abs(w) * 0.5, 0.4);
+      ctx.strokeStyle = w > 0 ? `rgba(74,222,128,${alpha})` : `rgba(248,113,113,${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(h.x, h.y);
+      ctx.lineTo(out.x, out.y);
+      ctx.stroke();
+    });
+  });
+
+  // Draw neurons
+  const drawNeuron = (n, color, size = 12) => {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, size, 0, Math.PI * 2);
+    ctx.fillStyle = n.active ? color + '99' : 'rgba(248,113,113,0.3)';
+    ctx.fill();
+    ctx.strokeStyle = n.active ? color : '#f87171';
+    ctx.lineWidth = n.testCount > 0 ? 3 : 2;
+    ctx.stroke();
+
+    if (!n.active) {
+      // X mark for pruned
+      ctx.strokeStyle = '#f87171';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(n.x - 5, n.y - 5);
+      ctx.lineTo(n.x + 5, n.y + 5);
+      ctx.moveTo(n.x + 5, n.y - 5);
+      ctx.lineTo(n.x - 5, n.y + 5);
+      ctx.stroke();
+    }
+  };
+
+  neurons.input.forEach(n => drawNeuron(n, '#60a5fa', 10));
+  neurons.hidden.forEach(n => {
+    const color = n.testCount > 0 ? '#facc15' : (n.active ? '#4ade80' : '#f87171');
+    drawNeuron(n, color, 14);
+  });
+  neurons.output.forEach(n => drawNeuron(n, '#c084fc', 10));
+
+  // Draw evaluators
+  evaluators.forEach(e => {
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = e.state === 'Testing' ? '#60a5fa99' : '#fb923c99';
+    ctx.fill();
+    ctx.strokeStyle = e.state === 'Testing' ? '#60a5fa' : '#fb923c';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Connection to target
+    if (e.target !== null) {
+      const t = neurons.hidden[e.target];
+      if (t) {
+        ctx.beginPath();
+        ctx.moveTo(e.x, e.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.strokeStyle = 'rgba(251,146,60,0.3)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  });
+
+  // Layer labels
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Input', neurons.input[0]?.x || W*0.15, 25);
+  ctx.fillText('Hidden', neurons.hidden[0]?.x || W*0.5, 25);
+  ctx.fillText('Output', neurons.output[0]?.x || W*0.85, 25);
+
+  // Draw tradeoff chart
+  drawTradeoffChart();
+}
+
+function drawTradeoffChart() {
+  const W = chartCanvas.width / devicePixelRatio;
+  const H = chartCanvas.height / devicePixelRatio;
+  chartCtx.fillStyle = '#1a2332';
+  chartCtx.fillRect(0, 0, W, H);
+
+  if (accuracyHistory.length < 2) return;
+
+  // RCOA accuracy line
+  chartCtx.beginPath();
+  chartCtx.moveTo(0, H - accuracyHistory[0] * H);
+  for (let i = 1; i < accuracyHistory.length; i++) {
+    const x = (i / accuracyHistory.length) * W;
+    const y = H - accuracyHistory[i] * H;
+    chartCtx.lineTo(x, y);
+  }
+  chartCtx.strokeStyle = '#4ade80';
+  chartCtx.lineWidth = 2;
+  chartCtx.stroke();
+
+  // Magnitude comparison if available
+  if (magAccHistory.length > 1) {
+    chartCtx.beginPath();
+    chartCtx.moveTo(0, H - magAccHistory[0] * H);
+    for (let i = 1; i < magAccHistory.length; i++) {
+      const x = (i / magAccHistory.length) * W;
+      const y = H - magAccHistory[i] * H;
+      chartCtx.lineTo(x, y);
+    }
+    chartCtx.strokeStyle = '#f87171';
+    chartCtx.lineWidth = 2;
+    chartCtx.stroke();
+  }
+}
+
+// Animation
+function animate(time) {
+  if (!running || paused) return;
+  const delta = time - lastTime;
+  lastTime = time;
+  accumulator += delta;
+
+  const p = P();
+  const stepMs = 1000 / (p.speed * 2);
+
+  while (accumulator >= stepMs) {
+    step();
+    accumulator -= stepMs;
+  }
+
+  draw();
+  animFrame = requestAnimationFrame(animate);
+}
+
+function start() {
+  if (running && !paused) return;
+  if (!running) init();
+  running = true;
+  paused = false;
+  lastTime = performance.now();
+  accumulator = 0;
+  animFrame = requestAnimationFrame(animate);
+}
+
+function pause() {
+  paused = !paused;
+  if (!paused) {
+    lastTime = performance.now();
+    animFrame = requestAnimationFrame(animate);
+  }
+}
+
+function reset() {
+  running = false;
+  paused = false;
+  if (animFrame) cancelAnimationFrame(animFrame);
+  init();
+}
+
+// Event bindings
+document.getElementById('btnStart').addEventListener('click', start);
+document.getElementById('btnPause').addEventListener('click', pause);
+document.getElementById('btnReset').addEventListener('click', reset);
+document.getElementById('btnCompare').addEventListener('click', runMagnitudeComparison);
+
+// Initialize
+init();
+</script>
+</body>
+</html>

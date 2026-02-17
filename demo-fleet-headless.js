@@ -25,14 +25,16 @@ const CONFIG = {
   components: QUICK ? 12 : 20,
   crews: QUICK ? 4 : 6,
   iterations: QUICK ? 200 : 500,
-  runs: QUICK ? 7 : 21,
+  runs: QUICK ? 7 : 51,  // Paper standard: 51 independent runs
   severity: 5,
-  // RCOA parameters
-  gamma: 0.5,        // Cannibalism coefficient (density penalty)
-  eta: 0.25,         // Fertilization rate
-  alpha: 0.2,        // Bioturbation scale
-  tauStag: 6,        // Stagnation threshold
-  tauMolt: 15,       // Molting period
+  // RCOA parameters (aligned with RCOA_Revised_Paper.md Section 6.1)
+  gamma: 0.5,        // Cannibalism coefficient (density penalty) - HIGH sensitivity
+  eta: 0.25,         // Fertilization rate - HIGH sensitivity
+  alpha: 0.2,        // Bioturbation scale - Medium sensitivity
+  tauStag: 6,        // Stagnation threshold - Low sensitivity
+  tauMolt: 15,       // Molting period - Low sensitivity
+  lambda_deg: 0.01,  // Degradation rate (Weibull hazard parameter)
+  instantMode: true, // Skip travel time - operators fire immediately
 };
 
 // === Math Utilities ===
@@ -149,11 +151,12 @@ function generateComponents(N) {
 function runRCOAFleet(components, cfg, options = {}) {
   const N = components.length;
   const M = cfg.crews;
-  const { gamma, eta, alpha, tauStag, tauMolt, severity, iterations } = cfg;
+  const { gamma, eta, alpha, tauStag, tauMolt, severity, iterations, lambda_deg = 0.01 } = cfg;
   const enableFert = options.fert !== false;
   const enableWeed = options.weed !== false;
   const enableBio = options.bio !== false;
   const enableMolt = options.molt !== false;
+  let totalFEs = 0; // Track function evaluations for fair comparison
 
   // Initialize component health
   const health = Array.from({ length: N }, () => rand(0.7, 1.0));
@@ -304,6 +307,7 @@ function runRCOAFleet(components, cfg, options = {}) {
     finalAvg, finalWorst, reliability, failures,
     healthHistory, worstHistory, events,
     finalHealth: health.slice(),
+    totalFEs, // Include FE count for fair comparison
   };
 }
 
@@ -319,6 +323,7 @@ function runPSOFleet(components, cfg) {
   const pBest = targets.slice();
   let gBest = 0;
   const healthHistory = [];
+  let totalFEs = 0; // Track FEs for fair comparison
 
   for (let t = 0; t < iterations; t++) {
     // Degrade
@@ -352,6 +357,7 @@ function runPSOFleet(components, cfg) {
     failures: health.filter(h => h < 0.2).length,
     healthHistory,
     finalHealth: health.slice(),
+    totalFEs,
   };
 }
 
@@ -369,6 +375,7 @@ function runGAFleet(components, cfg) {
     Array.from({ length: N }, () => Math.floor(Math.random() * 4))
   );
   const healthHistory = [];
+  let totalFEs = 0; // Track FEs for fair comparison
 
   for (let t = 0; t < iterations; t++) {
     // Degrade
@@ -418,6 +425,7 @@ function runGAFleet(components, cfg) {
     failures: health.filter(h => h < 0.2).length,
     healthHistory,
     finalHealth: health.slice(),
+    totalFEs,
   };
 }
 

@@ -1,0 +1,64 @@
+{
+  "config": {
+    "n_runs": 15,
+    "algorithms": [
+      "RCOA",
+      "PSO",
+      "DE",
+      "GA"
+    ],
+    "dimensions": [
+      10,
+      30
+    ]
+  },
+  "comparisons": {
+    "RCOA_vs_PSO": {
+      "wins": 20,
+      "ties": 0,
+      "losses": 0,
+      "win_rate": 1.0
+    },
+    "RCOA_vs_DE": {
+      "wins": 19,
+      "ties": 0,
+      "losses": 1,
+      "win_rate": 0.95
+    },
+    "RCOA_vs_GA": {
+      "wins": 20,
+      "ties": 0,
+      "losses": 0,
+      "win_rate": 1.0
+    }
+  },
+  "summary": {
+    "total_runs": 1200,
+    "algorithms": {
+      "RCOA": {
+        "mean_fitness": 0.07392077578100982,
+        "std_fitness": 0.3819236545487897,
+        "mean_fe": 200016.65666666668,
+        "mean_time": 16.91014191389084
+      },
+      "PSO": {
+        "mean_fitness": 92160011.03855681,
+        "std_fitness": 430896381.3563508,
+        "mean_fe": 200000.0,
+        "mean_time": 20.394943253993986
+      },
+      "DE": {
+        "mean_fitness": 2645533498.90316,
+        "std_fitness": 9317836451.643559,
+        "mean_fe": 200000.0,
+        "mean_time": 29.986154214541116
+      },
+      "GA": {
+        "mean_fitness": 3062331002.4681115,
+        "std_fitness": 11047663286.309435,
+        "mean_fe": 200018.0,
+        "mean_time": 64.90484897057216
+      }
+    }
+  }
+}

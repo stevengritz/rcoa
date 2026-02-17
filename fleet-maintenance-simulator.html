@@ -225,6 +225,9 @@
         <input type="range" id="pSpeed" min="1" max="10" value="3">
         <span class="val" id="vSpeed">3</span>
       </div>
+      <div class="param-row">
+        <label><input type="checkbox" id="togInstant"> Instant Mode (skip travel)</label>
+      </div>
       <div class="btn-row">
         <button class="btn primary" id="btnStart">Start</button>
         <button class="btn" id="btnPause">Pause</button>
@@ -296,6 +299,21 @@
     <div class="panel-section">
       <h3>Health Distribution</h3>
       <div class="chart-container"><canvas id="healthDistChart"></canvas></div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Operator Contributions</h3>
+      <div style="font-size:0.7em; line-height:1.8;">
+        <div class="param-row"><span style="color:var(--rice-green);">●</span> Fertilization: <span id="contribFert" style="color:var(--rice-green);">0.00</span></div>
+        <div class="param-row"><span style="color:var(--rice-yellow);">●</span> Weeding: <span id="contribWeed" style="color:var(--rice-yellow);">0.00</span></div>
+        <div class="param-row"><span style="color:var(--crab-orange);">●</span> Bioturbation: <span id="contribBio" style="color:var(--crab-orange);">0.00</span></div>
+        <div class="param-row"><span style="color:var(--accent2);">●</span> Molting (locked): <span id="contribMolt" style="color:var(--accent2);">0</span></div>
+      </div>
+      <div style="margin-top:8px; height:60px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; position:relative;" id="contribBar">
+        <div style="position:absolute; height:100%; background:var(--rice-green); left:0; width:0%;" id="barFert"></div>
+        <div style="position:absolute; height:100%; background:var(--rice-yellow); width:0%;" id="barWeed"></div>
+        <div style="position:absolute; height:100%; background:var(--crab-orange); width:0%;" id="barBio"></div>
+      </div>
     </div>
 
     <div class="panel-section" id="comparisonSection" style="display:none;">
@@ -388,6 +406,9 @@ let animFrame = null;
 let lastTime = 0;
 let accumulator = 0;
 
+// Operator contribution tracking
+let opContrib = { fert: 0, weed: 0, bio: 0, moltCount: 0 };
+
 // --- Parameters ---
 function getParams() {
   return {
@@ -401,6 +422,7 @@ function getParams() {
     tauMolt: +document.getElementById('pTauMolt').value,
     Rint: +document.getElementById('pRint').value,
     speed: +document.getElementById('pSpeed').value,
+    instantMode: document.getElementById('togInstant').checked,
     fertOn: document.getElementById('togFert').checked,
     weedOn: document.getElementById('togWeed').checked,
     bioOn: document.getElementById('togBio').checked,
@@ -486,6 +508,7 @@ function init() {
   iteration = 0;
   healthHistory = [];
   psoHealthHistory = [];
+  opContrib = { fert: 0, weed: 0, bio: 0, moltCount: 0 }; // Reset contributions
   document.getElementById('comparisonSection').style.display = 'none';
 
   // Latin Hypercube Sampling for Rice placement
@@ -619,7 +642,14 @@ function step() {
     }
 
     const target = rice[c.targetRice];
-    const d = dist(c, target);
+    let d = dist(c, target);
+
+    // Instant mode: teleport directly to target (skip travel time)
+    if (p.instantMode) {
+      c.x = target.x + rand(-5, 5);
+      c.y = target.y + rand(-5, 5);
+      d = 0; // Force symbiosis
+    }
 
     // Velocity update (PSO-like with density penalty)
     // For maintenance: emphasize getting to target (social) over personal best (cognitive)
@@ -658,6 +688,7 @@ function step() {
         if (trialHealth > target.health) {
           const improvement = (trialHealth - target.health) * 0.3;
           target.health = clamp(target.health + improvement, 0, 1);
+          opContrib.weed += improvement; // Track contribution
           if (iteration % 20 === 0) logEvent('weed', `Weed pruned at C${target.id}: noise removed`);
         }
       }
@@ -668,6 +699,7 @@ function step() {
         const fertGain = p.eta * densityFactor * (1 - target.health);
         target.health = clamp(target.health + fertGain, 0, 1);
         target.yield = target.health * target.health;
+        opContrib.fert += fertGain; // Track contribution
 
         // Update crab's personal best
         if (target.yield > c.pBestFitness) {
@@ -691,9 +723,11 @@ function step() {
 
         if (target.stagnationCount >= p.tauStag) {
           const levy = levyStep(1.5) * p.alpha;
+          const bioGain = Math.max(0, levy * 0.1);
           target.health = clamp(target.health + levy * 0.1, 0, 1);
           target.yield = target.health * target.health;
           target.stagnationCount = 0;
+          opContrib.bio += bioGain; // Track contribution
           logEvent('bio', `Bioturbation at C${target.id}: Lévy jolt applied (Δ=${(levy*0.1).toFixed(3)})`);
         }
       }
@@ -723,6 +757,7 @@ function step() {
       // Lock the elite rice
       bestR.locked = true;
       bestR.lockTimer = 5;
+      opContrib.moltCount++; // Track molting events
       logEvent('molt', `Crab ${crab.id} molting at elite C${bestR.id} (locked)`);
     }
   }
@@ -1161,6 +1196,25 @@ function updateStats() {
 
   const phase = running ? (paused ? 'Paused' : 'Running') : 'Idle';
   document.getElementById('phaseLabel').textContent = phase;
+
+  // Update operator contribution display
+  document.getElementById('contribFert').textContent = opContrib.fert.toFixed(2);
+  document.getElementById('contribWeed').textContent = opContrib.weed.toFixed(2);
+  document.getElementById('contribBio').textContent = opContrib.bio.toFixed(2);
+  document.getElementById('contribMolt').textContent = opContrib.moltCount;
+
+  // Update contribution bar
+  const total = opContrib.fert + opContrib.weed + opContrib.bio;
+  if (total > 0) {
+    const fertPct = (opContrib.fert / total * 100);
+    const weedPct = (opContrib.weed / total * 100);
+    const bioPct = (opContrib.bio / total * 100);
+    document.getElementById('barFert').style.width = fertPct + '%';
+    document.getElementById('barWeed').style.width = weedPct + '%';
+    document.getElementById('barWeed').style.left = fertPct + '%';
+    document.getElementById('barBio').style.width = bioPct + '%';
+    document.getElementById('barBio').style.left = (fertPct + weedPct) + '%';
+  }
 }
 
 // --- Event Log ---

@@ -1,0 +1,63 @@
+[project]
+name = "rcoa"
+version = "0.1.0"
+description = "Rice-Crab Optimization Algorithm: A heterogeneous multi-agent metaheuristic for regenerative optimization problems"
+authors = [
+    {name = "Steven Ritz", email = "steven@example.com"},
+    {name = "Claude", email = "claude@anthropic.com"},
+    {name = "Gemini", email = "gemini@google.com"},
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = ["optimization", "metaheuristic", "swarm-intelligence", "bio-inspired", "rcoa"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+viz = [
+    "matplotlib>=3.7.0",
+]
+all = [
+    "rcoa[dev,viz]",
+]
+
+[project.urls]
+Homepage = "https://github.com/stevengritz/rcoa"
+Documentation = "https://github.com/stevengritz/rcoa#readme"
+Repository = "https://github.com/stevengritz/rcoa"
+
+[project.scripts]
+rcoa-benchmark = "rcoa.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rcoa"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

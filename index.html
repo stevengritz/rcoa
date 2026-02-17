@@ -181,6 +181,22 @@
         <span class="demo-tag">Pattern Recognition</span>
         <span class="demo-tag">Signal Processing</span>
       </a>
+
+      <a href="server-cluster-demo.html" class="demo-card">
+        <h3>Server Cluster Maintenance</h3>
+        <p>Intelligent SRE scheduling for server clusters. Watch RCOA optimize patching, reboots, and load balancing to maximize uptime.</p>
+        <span class="demo-tag">DevOps</span>
+        <span class="demo-tag">SRE</span>
+        <span class="demo-tag">Load Balancing</span>
+      </a>
+
+      <a href="neural-pruning-demo.html" class="demo-card">
+        <h3>Neural Network Pruning</h3>
+        <p>Sensitivity-based network pruning using RCOA's weeding operator. Achieve compression while preserving accuracy.</p>
+        <span class="demo-tag">Deep Learning</span>
+        <span class="demo-tag">Model Compression</span>
+        <span class="demo-tag">Pruning</span>
+      </a>
     </div>
   </section>
 
@@ -199,7 +215,10 @@
         For more information, check out the <a href="Rice-Crab Algorithm For Optimization.pdf">original research paper</a>,
         the <a href="PEER_REVIEW.md">skeptical peer review</a>,
         and the <a href="RCOA_Revised_Paper.md">revised paper</a> addressing identified gaps.
-        Run the <a href="benchmark-headless.js">headless benchmark</a> with <code>node benchmark-headless.js</code> to verify performance claims.
+      </p>
+      <p>
+        <strong>Validation:</strong> Run <code>node verify-metrics.js</code> for statistical validation (51 runs with Wilcoxon signed-rank test),
+        or <code>node demo-fleet-headless.js</code> for quick benchmarking.
       </p>
     </div>
   </section>

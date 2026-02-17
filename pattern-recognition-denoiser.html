@@ -226,6 +226,9 @@
         <input type="range" id="pSpeed" min="1" max="10" value="4">
         <span class="val" id="vSpeed">4</span>
       </div>
+      <div class="param-row">
+        <label><input type="checkbox" id="togInstant"> Instant Mode (skip travel)</label>
+      </div>
       <div class="btn-row">
         <button class="btn primary" id="btnStart">Start</button>
         <button class="btn" id="btnPause">Pause</button>
@@ -287,6 +290,16 @@
     <div class="panel-section">
       <h3>Convergence</h3>
       <div class="chart-box"><canvas id="convergenceChart"></canvas></div>
+    </div>
+
+    <div class="panel-section">
+      <h3>Operator Contributions</h3>
+      <div style="font-size:0.7em; line-height:1.8;">
+        <div class="param-row"><span style="color:var(--weed);">●</span> Weeding (dims pruned): <span id="contribWeed" style="color:var(--weed);">0</span></div>
+        <div class="param-row"><span style="color:var(--signal);">●</span> Fertilization: <span id="contribFert" style="color:var(--signal);">0.00</span></div>
+        <div class="param-row"><span style="color:var(--crab-orange);">●</span> Bioturbation: <span id="contribBio" style="color:var(--crab-orange);">0</span></div>
+        <div class="param-row"><span style="color:var(--accent2);">●</span> Molting (locks): <span id="contribMolt" style="color:var(--accent2);">0</span></div>
+      </div>
     </div>
 
     <div class="panel-section" id="compSection" style="display:none;">
@@ -383,6 +396,9 @@ let running = false, paused = false;
 let fitnessHistory = [], gaFitnessHistory = [];
 let animFrame = null, lastTime = 0, accumulator = 0;
 
+// Operator contribution tracking
+let opContrib = { weed: 0, fert: 0, bio: 0, moltCount: 0 };
+
 // --- Params ---
 function P() {
   return {
@@ -402,6 +418,7 @@ function P() {
     Rint: +document.getElementById('pRint').value,
     epsilon: +document.getElementById('pEpsilon').value / 100,
     speed: +document.getElementById('pSpeed').value,
+    instantMode: document.getElementById('togInstant').checked,
     weedOn: document.getElementById('togWeed').checked,
     fertOn: document.getElementById('togFert').checked,
     bioOn: document.getElementById('togBio').checked,
@@ -527,6 +544,7 @@ function init() {
   iteration = 0;
   fitnessHistory = [];
   gaFitnessHistory = [];
+  opContrib = { weed: 0, fert: 0, bio: 0, moltCount: 0 }; // Reset contributions
   document.getElementById('compSection').style.display = 'none';
 
   // Rice agents: candidate feature subsets / centroids
@@ -686,7 +704,14 @@ function step() {
 
     c.targetRice = bestIdx;
     const target = riceAgents[bestIdx];
-    const d = dist2D(c, target);
+    let d = dist2D(c, target);
+
+    // Instant mode: teleport directly to target
+    if (p.instantMode) {
+      c.x = target.x + rand(-5, 5);
+      c.y = target.y + rand(-5, 5);
+      d = 0; // Force symbiosis
+    }
 
     // Velocity update
     const omega = 0.65;
@@ -730,6 +755,7 @@ function step() {
             // This dimension is a "weed" - prune it
             target.featureMask[dim] = 0;
             featureWeights[dim] = Math.max(featureWeights[dim] - 0.1, 0);
+            opContrib.weed++; // Track contribution
             if (iteration % 15 === 0) {
               const dimType = featureIsSignal[dim] ? 'SIGNAL' : 'NOISE';
               log('weed', `Weeded dim ${dim} (${dimType}) from R${target.id}, S_d=${sensitivity.toFixed(3)} < ε=${p.epsilon.toFixed(2)}`);
@@ -761,6 +787,8 @@ function step() {
           c.pBestFitness = newFit;
           c.recentImprovement += newFit - target.yield;
         }
+        const fertGain = Math.max(0, newFit - target.yield);
+        opContrib.fert += fertGain; // Track contribution
         target.yield = newFit;
 
         if (iteration % 25 === 0) log('fert', `Fertilized R${target.id}: fit=${newFit.toFixed(3)} (ρ=${target.crabDensity})`);
@@ -787,6 +815,7 @@ function step() {
           target.x = clamp(target.x, 30, W-30);
           target.y = clamp(target.y, 30, H-30);
           target.stagnation = 0;
+          opContrib.bio++; // Track contribution
           log('bio', `Bioturbation at R${target.id}: Lévy jolt applied`);
         }
       }
@@ -812,6 +841,7 @@ function step() {
       crab.recentImprovement = 0;
       elite.locked = true;
       elite.lockTimer = 5;
+      opContrib.moltCount++; // Track contribution
       log('molt', `Crab ${crab.id} molting at elite R${elite.id} (locked)`);
     }
   }
@@ -939,6 +969,12 @@ function updateMetrics() {
   document.getElementById('mWeeded').textContent = weeded + '/' + p.dims;
   document.getElementById('mSNR').textContent = snr;
   document.getElementById('mFitness').textContent = bestFit.toFixed(3);
+
+  // Update operator contribution display
+  document.getElementById('contribWeed').textContent = opContrib.weed;
+  document.getElementById('contribFert').textContent = opContrib.fert.toFixed(2);
+  document.getElementById('contribBio').textContent = opContrib.bio;
+  document.getElementById('contribMolt').textContent = opContrib.moltCount;
 }
 
 // --- Drawing ---
